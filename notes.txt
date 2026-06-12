@@ -1,0 +1,11 @@
+
+for image manipulation we requrie
+C libraries
+which are
+stb_image.h and std_image_write.h - these decode image files into raw byte array and then encode them 
+back into disk.
+
+download the cuda thing
+and then migrate this form this vs code to the vs 2022
+then try implementation of one of the parallel gpu algorithm 
+for the gray scale conversion and then understand it
