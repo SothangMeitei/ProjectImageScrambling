@@ -15,43 +15,29 @@ __global__ void _bitReplaceKernel(
     , unsigned char* output1 
     , unsigned char* output2
     , long long size
-    , std::array<char , 2> mappingData
-    , bool isEncrypt){
-    //for all bits 
-    //if 1 then make 10 and give 1 to output1 and 0 to output2
-    //if 0 then make 01 and give 0 to output1 and 1 to output2
-    // Calculate the 1D index
+    , bool isEncrypt) {
+    
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
-
-    // Safety boundary check
     if (index < size) {
-        // Read the byte
-        unsigned char current_byte = input[index];
-        unsigned char outputByteBuffer{0};
         
-        for(int i = 3; i >= 0 ; ++i){
-            if(((current_byte >> 4 + i) && 1) == 0){
-                //if 0 then
-                outputByteBuffer || (1 << (2 * i));
-            }
-            else{
-                outputByteBuffer || (1 << (2 * i + 1));
-            }
-            output1[index] = outputByteBuffer;
-        }
+        unsigned char current_byte = input[index];    
+        unsigned char buffer1 = 0;
 
-        outputByteBuffer = 0;
-
-        for(int i = 3; i >= 0 ; ++i){
-            if(((current_byte >> i) && 1) == 0){
-                //if 0 then
-                outputByteBuffer || (1 << (2 * i));
-            }
-            else{
-                outputByteBuffer || (1 << (2 * i + 1));
-            }
-            output2[index] = outputByteBuffer;
+        for(int i = 0; i < 4; ++i) {
+            unsigned char b = (current_byte >> (4 + i)) & 1;
+            unsigned char pair = (b << 1) | (b ^ 1);            
+            buffer1 |= (pair << (2 * i));
         }
+        output1[index] = buffer1;
+
+        unsigned char buffer2 = 0;
+        for(int i = 0; i < 4; ++i) {
+            unsigned char b = (current_byte >> i) & 1;
+            unsigned char pair = (b << 1) | (b ^ 1);
+            buffer2 |= (pair << (2 * i));
+        }
+        
+        output2[index] = buffer2;
     }
 }
 
@@ -110,7 +96,6 @@ void encryptionEngine::_encrypt(unsigned char*){
     //give the pointer to the new data and the input data to the kernel
     //the kernel then populates the new memory location in vram
     //then this pointer to the output will be pointing to the new memory location with the encrypted image
-
 }
 void encryptionEngine::_decrypt(unsigned char*){}
 
