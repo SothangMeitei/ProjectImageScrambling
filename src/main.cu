@@ -25,8 +25,8 @@ __global__ void grayscaleKernel(unsigned char* d_in, unsigned char* d_out, int w
     // 2. Boundary check: Make sure we don't read outside the image array
     if (x < width && y < height) {
         // Map 2D coordinates back to the 1D contiguous memory index
-        int gray_index = y * width + x; 
-        int rgb_index = gray_index * channels;
+        int gray_index  = y * width + x; 
+        int rgb_index   = gray_index * channels;
 
         unsigned char r = d_in[rgb_index];
         unsigned char g = d_in[rgb_index + 1];
@@ -46,6 +46,7 @@ int main() {
     
     // 1. Host Allocation (CPU RAM)
     //this function allocates the data on the system RAM and returns the starting address
+    //populates the h_img pointer space and with the requried data depending on the desired channels
     unsigned char *h_img = stbi_load("assets/input.png", &width, &height, &original_channels, desired_channels);
     if (!h_img) {
         printf("Error loading image.\n");
@@ -59,8 +60,8 @@ int main() {
     unsigned char *h_gray_img   = new unsigned char[gray_size];
 
     // 2. Device Allocation (GPU VRAM)
-    unsigned char *d_in = nullptr;
-    unsigned char *d_out = nullptr;
+    unsigned char *d_in     = nullptr;
+    unsigned char *d_out    = nullptr;
     cudaMalloc((void**)&d_in, rgb_size);        //allocates in the vram the mrmory for the data requried form the original image
     cudaMalloc((void**)&d_out, gray_size);      //allocates in the vram the memory for the gray scale image
 
