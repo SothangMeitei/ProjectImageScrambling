@@ -1,4 +1,4 @@
-#pragma once
+
 //define all the functions for the chen chaotic stream processing
 
 //according to the engine design we need to have the mapping array of int
@@ -12,16 +12,16 @@
 class chenStreamProcessor {
     public:
         struct mappingArrayValue {
-            uint64_t mantissaChaos; // The 52-bit chaotic fraction cast to integer
-            int previousIndex;      // The original spatial index (0 to size-1)
+            uint64_t    mantissaChaos;      // The 52-bit chaotic fraction cast to integer
+            int         previousIndex;      // The original spatial index (0 to size-1)
         };
 
     private:
         int                     m_size;
-        int* m_flatMapping;                     // The flat array for the GPU
-        mappingArrayValue* m_structArray;       // The structural array for sorting
+        int*                    m_flatMapping;       // The flat array for the GPU
+        mappingArrayValue*      m_structArray;       // The structural array for sorting
     private:
-        void _radixSort(int , unsigned char*);
+        void _radixSort();
     public:
         chenStreamProcessor(int streamSize);
         ~chenStreamProcessor();
