@@ -23,7 +23,11 @@ class encryptionEngine{
 
     private:
         //internal data structures
-        std::queue<unsigned char*>  m_inputImageQueueBuffer;
+        struct imageData{
+            unsigned char* imagePixelValues;
+            int sizeOfImageFileInByte;
+        };
+        std::queue<imageData>  m_inputImageQueueBuffer;
         unsigned char * chaoticStreamChen;
         unsigned char * chaoticStreamLorenz;
 
@@ -75,4 +79,5 @@ class encryptionEngine{
         bool pushImageIntoQueueBuffer(const unsigned char*);
 
         void run();
+        void stop();
 };

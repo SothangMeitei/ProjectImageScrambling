@@ -322,9 +322,23 @@ bool encryptionEngine::pushImageIntoQueueBuffer(const unsigned char* input){
     //this input already exist in the ram and this function is just to make this go into the processing queue
 
 }
+void encryptionEngine::stop(){
+    isRunning = false;
+}
 
 void encryptionEngine::run(){
     while(isRunning){
+        //process the queue
+        //and then write the output to the disk and then after that
+        //process the next frame in the queue
+        if(m_inputImageQueueBuffer.empty()) continue;
         
+        unsigned char* cipherText{_encrypt(
+            m_inputImageQueueBuffer.front().imagePixelValues 
+        ,   m_inputImageQueueBuffer.front().sizeOfImageFileInByte)};
+
+        m_inputImageQueueBuffer.pop();
+        
+        //need to write this into the disk some how save this cipher text in the disk dont know how to do this
     }
 }
