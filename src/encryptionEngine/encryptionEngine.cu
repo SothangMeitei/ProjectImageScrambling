@@ -59,7 +59,11 @@ __global__ void _pixelPermuteKernel(
         outputImage[mapping[index]] = inputImage[index];
     }
 }
-__global__ void _pixelDiffuseKernel(unsigned char* input, unsigned char* diffusionMatrix, unsigned char* output , int size){
+__global__ void _pixelDiffuseKernel(
+    unsigned char* input
+    , unsigned char* diffusionMatrix
+    , unsigned char* output
+    , int size){
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
     //this just does the parallel part of the diffusion process the sequential part will be done later in the cpu side
     //as this sequential and parallel parts are associative
@@ -83,56 +87,74 @@ __constant__ int d_DNA_ENCODING_RULES[8][4] = {
     {2, 3, 0, 1}
 };
 
-__device__ int encodeDNA(int binary_val, int rule_index) {
+__device__ int encodeDNA(
+    int binary_val
+    , int rule_index) {
     return d_DNA_ENCODING_RULES[rule_index][binary_val];
 }
 
-__global__ void _DNAEncodingKernel(unsigned char* input,unsigned char* mapping , unsigned char* output , int size){
+__global__ void _DNAEncodingKernel(
+    unsigned char* input
+    , unsigned char* mapping
+    , unsigned char* output
+    , int size){
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index < size){
         output[index] = encodeDNA(input[index] ,mapping[index] % 8);   
     }
 }
 // Used during the Encryption Pipeline
-__device__ int performDNA_Addition(int pixel_dna, int key_dna) {
+__device__ int performDNA_Addition(
+    int pixel_dna
+    , int key_dna) {
     return (pixel_dna + key_dna) % 4;
 }
 // Used during the Decryption Pipeline
-__device__ int performDNA_Subtraction(int cipher_dna, int key_dna) {
+__device__ int performDNA_Subtraction(
+    int cipher_dna
+    , int key_dna) {
     return (cipher_dna - key_dna + 4) % 4;
 }
-__global__ void _performDNAOperationKernel(unsigned char* input,unsigned char* chaoticStream ,  unsigned char* output , int size){
+__global__ void _performDNAOperationKernel(
+    unsigned char* input
+    , unsigned char* chaoticStream
+    , unsigned char* output , int size){
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index < size){
         output[index] = performDNA_Addition(input[index] , chaoticStream[index] );
     }
 }
-
-__global__ void _mergeTwoHalvesKernel(unsigned char* input1 , unsigned char* input2 , unsigned char* output , int size){
+__global__ void _mergeTwoHalvesKernel(
+    unsigned char* input1
+    , unsigned char* input2 
+    , unsigned char* output
+    , int size){
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < size) {
         // Zipping the two arrays perfectly back into a single 8-bit byte
         output[index] = input1[index] | input2[index];
     }
 }
-
-
-
+__global__ void _performDNADecoding(
+    unsigned char* input1
+    , unsigned char* output
+    , int size){}
 encryptionEngine::encryptionEngine(){
     isRunning = true;
     isPaused = false;
+
+    d_scratchA = nullptr;
+    d_scratchB = nullptr;
+    d_scratchC = nullptr;
+    d_scratchD = nullptr;
+    m_currentArenaPixelSize = 0;
 }
 
 std::pair<unsigned char* , unsigned char*> encryptionEngine::_LaunchBitReplace(
-      unsigned char* inputImage 
+    unsigned char* inputImage
+    , unsigned char* output1
+    , unsigned char* output2
     , int size){
-    
-    unsigned char* output1{nullptr};
-    unsigned char* output2{nullptr};
-
-    cudaMalloc((void**)&output1 , size);     //size here is the size of the memory that is to be allocated in the memory
-    cudaMalloc((void**)&output2 , size);
-
     //this means that there is 256 threads per block 
     int blockSize = 256;
 
@@ -148,16 +170,13 @@ std::pair<unsigned char* , unsigned char*> encryptionEngine::_LaunchBitReplace(
 }
 unsigned char* encryptionEngine::_LaunchPixelPermute(
     unsigned char* inputImage
+    , unsigned char* output
     , int* permutation
     , int  size){
         //this inputImage will be one of the output of the previous bit replacement outputs
         //to not waste the gpu vram since this is not requried in after this point in the pipeline
         //w'll call delete on this inputImage to freeup vram space
         //and in the next point of the pipeline we then just pass the output of this point as the input of the next
-
-        unsigned char* output{nullptr};
-
-        cudaMalloc((void**)&output , size); //this will be the output from this part of the pipeline
 
         //just to remind we are to take the pixel value in ith position in the input image 
         //and then give to the pixel value in the array[i]th postion in output image position
@@ -173,9 +192,11 @@ unsigned char* encryptionEngine::_LaunchPixelPermute(
         _pixelPermuteKernel<<<gridSize , blockSize>>>(inputImage , output , permutation , size);
         return output;
 }
-unsigned char* encryptionEngine::_LaunchPixelDiffuse(unsigned char* inputImage, unsigned char* diffusionMatrix , int size){
-    unsigned char* output{nullptr};
-    cudaMalloc((void**)&output , size);
+unsigned char* encryptionEngine::_LaunchPixelDiffuse(
+    unsigned char* inputImage
+    , unsigned char* diffusionMatrix
+    , unsigned char* output
+    , int size){
 
     int blockSize{256};
     int gridSize{(size + blockSize - 1) / blockSize};
@@ -183,32 +204,36 @@ unsigned char* encryptionEngine::_LaunchPixelDiffuse(unsigned char* inputImage, 
     _pixelDiffuseKernel<<<gridSize , blockSize>>>(inputImage , diffusionMatrix , output , size);
     return output;
 }
-unsigned char* encryptionEngine::_LaunchDNAEncoding(unsigned char* input , unsigned char* keyStream ,  int size){
+unsigned char* encryptionEngine::_LaunchDNAEncoding(
+    unsigned char* input
+    , unsigned char* keyStream
+    , unsigned char* output
+    , int size){
     //this part just convert the input image into the DNA encodings
-    unsigned char* output{nullptr};
-    cudaMalloc((void**)&output , size);
-
     int blockSize{256};
     int gridSize{(size + blockSize - 1) / blockSize};
 
     _DNAEncodingKernel<<<gridSize , blockSize>>>(input , keyStream , output , size);
     return output;
 }
-unsigned char* encryptionEngine::_LaunchPerformDNAOperation(unsigned char* input, unsigned char* keyStream, int size){
+unsigned char* encryptionEngine::_LaunchPerformDNAOperation(
+    unsigned char* input
+    , unsigned char* keyStream
+    , unsigned char* output
+    , int size){
     //this is for the conversion of the two dna encoded image file with the caotic keystream 
-    //in a reversebile manner 
-    unsigned char* output{nullptr};
-    cudaMalloc((void**)& output , size);
-
+    //in a reversebile manner
     int blockSize{256};
     int gridSize{(size + blockSize - 1) / blockSize};
 
     _performDNAOperationKernel(input , keyStream , output , size);
     return output;
 }
-unsigned char* encryptionEngine::_LauchImageMerginZip(unsigned char* input1 , unsigned char* input2 , int size){
-    unsigned char* output{nullptr};
-    cudaMalloc((void**)&output , size);
+unsigned char* encryptionEngine::_LauchImageMerginZip(
+    unsigned char* input1 
+    , unsigned char* input2 
+    , unsigned char* output
+    , int size){
 
     int blockSize{256};
     int gridSize{(size + blockSize - 1) / blockSize};
@@ -216,33 +241,76 @@ unsigned char* encryptionEngine::_LauchImageMerginZip(unsigned char* input1 , un
     _mergeTwoHalvesKernel(input1 , input2 , output , size);
     return output;
 }
-unsigned char* encryptionEngine::_LaunchDNADecoding(unsigned char * input , int size){}
-unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage , int size){
-    //get the input data
-    //malloc the new place where the output is to be stored
-    //give the pointer to the new data and the input data to the kernel
-    //the kernel then populates the new memory location in vram
-    //then this pointer to the output will be pointing to the new memory location with the encrypted image
-
-    //the size of the image will be a standard 1080p , with 16 : 9 aspect ratio that is standard HD
-    //or for 4k the size is double that (not exactly) , but this is be a variable input into the size  variable
+unsigned char* encryptionEngine::_LaunchDNADecoding(
+    unsigned char* input
+    , unsigned char* output
+    , int size){
     
-    std::pair outputsBitReplacement = _LaunchBitReplace(plainTextInputImage , size);
+    int blockSize{256};
+    int gridSize{(size + blockSize - 1) / blockSize};
 
-    auto outputPermutedEncoding1 = _LaunchPixelPermute(outputsBitReplacement.first , nullptr , size);
-    auto outputPermutedEncoding2 = _LaunchPixelPermute(outputsBitReplacement.second , nullptr , size);
+    _performDNADecoding<<<blockSize , gridSize>>>(input , output , size);
+    return output;
+}
 
-    auto outputDiffusedEncoding1 = _LaunchPixelDiffuse(outputPermutedEncoding1 , nullptr , size);
-    auto outputDiffusedEncoding2 = _LaunchPixelDiffuse(outputPermutedEncoding2 , nullptr , size);
+void encryptionEngine::_reallocateVRAMScratchpadIfNeeded(size_t required_size) {
+    if (required_size > m_currentArenaPixelSize) {
+        if(d_scratchA) { cudaFree(d_scratchA); cudaFree(d_scratchB); cudaFree(d_scratchC); cudaFree(d_scratchD); }
+        
+        cudaMalloc((void**)&d_scratchA, required_size);
+        cudaMalloc((void**)&d_scratchB, required_size);
+        cudaMalloc((void**)&d_scratchC, required_size);
+        cudaMalloc((void**)&d_scratchD, required_size);
+        
+        m_currentArenaPixelSize = required_size;
+    }
+}
+unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage, int size) {
+    
+    // 1. Guarantee the VRAM scratchpad is large enough for this frame
+    _reallocateVRAMScratchpadIfNeeded(size);
 
-    auto outputDNAEncodedImage1 = _LaunchDNAEncoding(outputDiffusedEncoding1  , nullptr , size);
-    auto outputDNAEncodedImage2 = _LaunchDNAEncoding(outputDiffusedEncoding2  , nullptr , size);
+    // Copy input image to VRAM (We can use ScratchB temporarily as our landing pad!)
+    cudaMemcpy(d_scratchB, plainTextInputImage, size, cudaMemcpyHostToDevice);
 
-    auto outputDNAOperatedMergedImage = _LaunchPerformDNAOperation(outputDNAEncodedImage1 , outputDNAEncodedImage2 , size);
+    // ------------------------------------------------------------------------
+    // THE PING-PONG PIPELINE (Zero Driver Traps, 100% Asynchronous Silicon Speed)
+    // ------------------------------------------------------------------------
+    
+    // Stage 1: Split ScratchB ---> writes into ScratchA (MSB) and ScratchC (LSB)
+    _LaunchBitReplace(d_scratchB, d_scratchA, d_scratchC, size);
 
-    auto outputDNADecodedFinalImage = _LaunchDNADecoding(outputDNAOperatedMergedImage , size);
+    // Stage 2: Permutation
+    // MSB: Reads ScratchA ---> writes to ScratchB
+    _LaunchPixelPermute(d_scratchA, d_scratchB, d_permMap, size);
+    // LSB: Reads ScratchC ---> writes to ScratchD
+    _LaunchPixelPermute(d_scratchC, d_scratchD, d_permMap, size);
 
-    return outputDNADecodedFinalImage;
+    // Stage 3: Diffusion
+    // MSB: Reads ScratchB ---> writes back to ScratchA
+    _LaunchPixelDiffuse(d_scratchB, chaoticStreamLorenz, d_scratchA, size);
+    // LSB: Reads ScratchD ---> writes back to ScratchC
+    _LaunchPixelDiffuse(d_scratchD, chaoticStreamLorenz, d_scratchC, size);
+
+    // Stage 4: DNA Encoding
+    // MSB: Reads ScratchA ---> writes to ScratchB
+    _LaunchDNAEncoding(d_scratchA, chaoticStreamLorenz, d_scratchB, size);
+    // LSB: Reads ScratchC ---> writes to ScratchD
+    _LaunchDNAEncoding(d_scratchC, chaoticStreamLorenz, d_scratchD, size);
+
+    // Stage 5: Reversible DNA Merge (Merge LSB into MSB stream)
+    // Reads ScratchB & ScratchD ---> writes final answer into ScratchA
+    _LaunchPerformDNAOperation(d_scratchB, d_scratchD, d_scratchA, size);
+
+    // ... Decode DNA from ScratchA into ScratchB ...
+    _LaunchDNADecoding(d_scratchA , d_scratchB , size);
+    
+
+    // Copy the final encrypted result from ScratchB back to CPU RAM
+    unsigned char* h_encrypted_output = new unsigned char[size];
+    cudaMemcpy(h_encrypted_output, d_scratchB, size, cudaMemcpyDeviceToHost);
+
+    return h_encrypted_output;
 }
 unsigned char* encryptionEngine::_decrypt(unsigned char* cypherTextImage , int size){
     //thisis to get in the input as the encrypted text file and then run the decryption algorithm 

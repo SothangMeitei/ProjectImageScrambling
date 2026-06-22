@@ -1,0 +1,73 @@
+
+---------------------------------COMPUTATION OF THE DERIVATIES---------------------------------
+---------------------------------COMPUTATION OF DERIVATES THAT ARE CHAIGNED TOGETHER---------------------------------
+
+for something like that of the genration of the next value of the x y and z in chaotic system
+
+the derivative of these values are taken with respective to the time variable
+so these x y z are the position variable and their derivatives are the velocity variable in that direction
+
+to calculate the derivative in a computer we need to define the value of delta t that we need 
+the finer the value of this delta t the better the approximation but computatinally more intensive
+
+in the euler method for the calculation of the derivate 
+and in the Runge Kunta method they approach this calculation of the derivate form two different perspective
+
+first how is the derivative calculated
+
+the change in the value of x with respective to the change in the value of t is said to be the velocity of x and the first order derivative
+of the variable x with respect to the time variable
+
+dx/dt = lim h -> 0 (x(t + h) - x(t)) / h
+
+which is just that 
+dx/dt = (x(t + h) - x(t))/ h ; when h is taken to be of the constant fixed step size of h = 0.0001 or something
+dx/dt = (x1 - x0)/ h;    
+
+there for in the chen system we get this equation
+dx/dt = f(x , y)
+dx/dt(at x = x0) = (x1 - x0) / h = f(x0 , y0 , z0)
+
+therefore the value of 
+x1 = x0 + hf(x0 , y0 , z0)
+
+---------------------------------PROBLEMS TO OVERCOME---------------------------------
+the main problem to over come here is that this is not the acurrate measure of the derivate of the function x(t) , y(t) , z(t)
+and depending on the step size since this step size does not approach 0 and the step size is finite in value and near zero ~0 
+but does not approach as in the definition of the limit 0 
+the derivative will be off by some value to the actual value let this be the error term
+
+then when this error term is used in the next iteration it compounds the error terms value , 
+in increasing value of the degree of the error term(that is the error term degree increses with the increase in the number of iteration)
+hence the value of the derivate and the equation will have very large error term.
+
+the algorithm must minimize this error term.
+
+---------------------------------EULER METHOD V/S RUNGE KUNTA 4TH ORDER METHOD---------------------------------
+
+1) Euler method :-
+        In this method we are to calculate the value of x(i + 1) = x(i) + hf(x(i) , y(i) , z(i))
+
+        pros :- only one computation for the next value of the iteration
+        cons :- the error term is large after some iteration , so this does not measure the actual chaos of the chen system 
+
+2) Runge Kunta 4th order method :-
+        In this method we caculate the velocity at 4 different points and then take the weight average of those velocities
+        as the velocity of the next iteration
+
+        this way the calculated velocity is more accurate to the real derivative
+
+        apply chen equations(ace)
+
+        ace(starting point)  ; this function takes in the start point x0 , y0 , z0 ... and then applies the chen equations and gives out the resulting output
+
+        k1 = ace(k0);
+        k2 = ace(h * k1 / 2);    ; that is the starting point of this k2 is the mid point of the start and the end position of when we take step with time h with veclocity k1 
+        k3 = ace(h * k2 / 2);
+        k4 = ace(h * k3 / 2);
+
+        after this we take the weight average of these velocities and then add them to get the final value of the next iteration value
+
+        finally
+        here r(i) = <x(i) , y(i) , z(i) , ...>
+        r(i + 1) = r(i) + h/6 * (k1 + 2 * k2 + 2 * k3 + k4)

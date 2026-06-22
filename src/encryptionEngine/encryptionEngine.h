@@ -27,6 +27,17 @@ class encryptionEngine{
         unsigned char * chaoticStreamChen;
         unsigned char * chaoticStreamLorenz;
 
+        int* d_permMap;
+    private:
+        // --- THE VRAM SCRATCHPAD ARENA ---
+        unsigned char* d_scratchA;
+        unsigned char* d_scratchB;
+        unsigned char* d_scratchC;
+        unsigned char* d_scratchD;
+        
+        size_t m_currentArenaPixelSize; // Tracks the size the arena was built for
+        void _reallocateVRAMScratchpadIfNeeded(size_t required_size);
+
     private:
         //for the cpu side computation
 
@@ -45,20 +56,21 @@ class encryptionEngine{
         //functions or systems that will work on the image files and the image files as datas
         //private as this is to be done only on the image files inside this class only and not on something outside of this class
         //here bool is used to indicate where we are doing the encrption or the decrption process
-        std::pair<unsigned char* , unsigned char*> _LaunchBitReplace(unsigned char* ,int);
+        std::pair<unsigned char* , unsigned char*> _LaunchBitReplace(unsigned char* ,unsigned char* , unsigned char*,  int);
         //all of which is just the input , output , size ; in that order in this generation of the next stage in the pipeline the same vram location may be reused
-        unsigned char* _LaunchPixelPermute(unsigned char* , int* , int);
-        unsigned char* _LaunchPixelDiffuse(unsigned char* , unsigned char* , int);
-        unsigned char* _LaunchDNAEncoding(unsigned char* , unsigned char* , int);
-        unsigned char* _LaunchPerformDNAOperation(unsigned char* , unsigned char* , int);
-        unsigned char* _LaunchDNADecoding(unsigned char * input , int size);
-        unsigned char* _LauchImageMerginZip(unsigned char*, unsigned char*, int);
+        unsigned char* _LaunchPixelPermute(unsigned char* , unsigned char* , int* , int);
+        unsigned char* _LaunchPixelDiffuse(unsigned char* , unsigned char* ,unsigned char* , int);
+        unsigned char* _LaunchDNAEncoding(unsigned char* , unsigned char* , unsigned char* ,int);
+        unsigned char* _LaunchPerformDNAOperation(unsigned char* , unsigned char* , unsigned char* ,int);
+        unsigned char* _LaunchDNADecoding(unsigned char * ,unsigned char * ,  int);
+        unsigned char* _LauchImageMerginZip(unsigned char*, unsigned char*, unsigned char* , int);
 
         unsigned char* _encrypt(unsigned char* , int size);
         unsigned char* _decrypt(unsigned char* , int size);
 
     public:
         encryptionEngine();
+        ~encryptionEngine();
 
         bool pushImageIntoQueueBuffer(const unsigned char*);
 
