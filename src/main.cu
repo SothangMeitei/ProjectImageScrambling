@@ -98,7 +98,7 @@ int main() {
     // Lorenz: (a=10, b=8/3, c=46, d=2, e=12), 1500 discard cycles, starting coord X, Y, Z, W
     lorenzInitialArguments lorenzSecretKeys(
         10.0f, (8.0f / 3.0f), 46.0f, 2.0f, 12.0f, 1500, 
-        0.1111111f, 0.2222222f, 0.3333333f, 0.4444444f
+        0.7194113f, 0.8156727f, 0.2946103f, 0.9019771f
     );
 
     // Boot the hardware: Ignites RK4 CPU solvers, executes Radix sort, allocates static VRAM arena!
@@ -137,13 +137,16 @@ int main() {
     // ------------------------------------------------------------------------
     std::cout << "\n[PRODUCER]: Directory ingestion complete. Draining VRAM compute arena...\n";
     
-    // Give the GPU worker thread a brief temporal window to finish popping the final frames,
-    // executing the Galois math, and exporting the PNGs to disk.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    // Poll the public queue size dynamically until the consumer finishes the very last byte
+    while (masterEngine.getRemainingQueueSize() > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    // Give the GPU a tiny 100ms safety window to complete the final disk stbi_write_png flush
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     std::cout << "[SHUTDOWN]: Transmitting termination barrier to compute engine...\n";
     masterEngine.stop();
-
     // Join the GPU thread back to the main CPU thread contiguously
     if (computeWorker.joinable()) {
         computeWorker.join();

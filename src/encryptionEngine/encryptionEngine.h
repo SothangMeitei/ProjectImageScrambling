@@ -26,6 +26,7 @@ class encryptionEngine{
         bool isPaused;
 
         int                     m_streamSize;
+        imageData               m_referenceFormat;
         chenInitialArguments    m_chenArguments;
         lorenzInitialArguments  m_lorenzArguments;
 
@@ -55,7 +56,6 @@ class encryptionEngine{
         //the key is probably generated using the pseudo random generator using the computer system or something
         //this populates the Starting parameter internal member varialbe for both the coatic system
         void secreatKeyGenerator();
-        void secreatKeyGenerator();
         //this is the chaotic stream generators that will operate solely in the cpu side
         unsigned char* chen3DChaoticStream();
         unsigned char* lorenz4DHyperChaoticStream();
@@ -81,6 +81,7 @@ class encryptionEngine{
         ~encryptionEngine();
 
         bool pushImageIntoQueueBuffer(const unsigned char*);
+        int getRemainingQueueSize(){return m_inputImageQueueBuffer.size();}
 
         void run();
         void stop();

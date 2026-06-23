@@ -5,12 +5,13 @@
 class lorenzStreamProcessor {
     private:
         int m_size;                  // Target pixel count in bytes
-        unsigned char* m_byteStream; // Contiguous 8-bit stream for VRAM
+        uint32_t* m_intStream; // Contiguous 8-bit stream for VRAM
 
     public:
         lorenzStreamProcessor(int pixelCount);
         ~lorenzStreamProcessor();
 
-        void ingestRawStream(const float* rawLorenzStream, int floatCount);
-        unsigned char* getDiffusionBytes() const { return m_byteStream; }
+        uint32_t extractIntegralValues(float floatingValue);
+        void ingestRawStream(const float* rawLorenzStream);
+        uint32_t* getDiffusionValues() const { return m_intStream; }
 };

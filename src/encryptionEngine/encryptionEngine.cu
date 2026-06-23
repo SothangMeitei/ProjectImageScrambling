@@ -2,15 +2,23 @@
 #include <cuda_runtime.h>
 #include "encryptionEngine.h"
 
-#include "../vendor/stb/stb_image.h"
-#include "../vendor/stb/stb_image_write.h"
+#include "../../vendor/stb/stb_image.h"
+#include "../../vendor/stb/stb_image_write.h"
 #include <filesystem>
 
 #include<cstring>
 #include"../chaoticStreamProcessing/chenStreamProcessor.h"
+#include"../chaoticStreamProcessing/lorenzStreamProcessor.h"
+
+#include <thrust/scan.h>
+#include <thrust/device_ptr.h>
+#include <thrust/functional.h>
 
 namespace fs = std::filesystem;
-
+// Hardcoded spatial dimensions for the 640x360 Big Buck Bunny stream
+static int g_streamWidth    = 640;
+static int g_streamHeight   = 360;
+static int g_streamChannels = 3;
 // ============================================================================
 // 1. THE GPU KERNELS
 // ============================================================================
@@ -158,28 +166,31 @@ unsigned char* encryptionEngine::chen3DChaoticStream() {
 }
 
 unsigned char* encryptionEngine::lorenz4DHyperChaoticStream() {
-    int size = m_streamSize;
+    // 1. Ask the active stream format for the EXACT number of raw image bytes
+    size_t totalPayloadBytes = m_referenceFormat.sizeOfImageFileInByte;
 
-    // 1. Fire up the 4D Hyper-Lorenz RK4 Solver on CPU RAM
-    lorenzChaoticSystem lorenzSolver(m_lorenzArguments, size);
+    // 2. Calculate how many 32-bit integers we need to mint to cover those bytes.
+    // (A 32-bit int holds 4 bytes. We add +3 before integer division to force a ceil() round-up!)
+    size_t requiredIntWords = (totalPayloadBytes + 3) / 4;
+
+    // 3. Fire up the ODE solver for 'requiredIntWords' steps
+    lorenzChaoticSystem lorenzSolver(m_lorenzArguments, requiredIntWords);
     lorenzSolver.generate();
-    chaoticStreamLorenz rawLorenz = lorenzSolver.getChaoticStream();
 
-    // 2. Build Galois Addition & Diffusion Key Stream using Lorenz Axis X
-    // Harvest contiguous 8-bit byte entropy directly out of the mantissas
-    unsigned char* h_lorenzBytes = new unsigned char[size];
-    for (int i = 0; i < size; ++i) {
-        uint32_t bits;
-        std::memcpy(&bits, &rawLorenz.x[i], sizeof(float));
-        h_lorenzBytes[i] = (unsigned char)(bits & 0xFF); // Bounded 0-255 byte masking
-    }
+    // 4. Mint the dense 32-bit entropy words
+    lorenzStreamProcessor mint(requiredIntWords);
+    mint.ingestRawStream(lorenzSolver.getChaoticStream().x);
+    uint32_t* cpuIntReservoir = mint.getDiffusionValues();
 
-    unsigned char* d_lorenzStreamDevice = nullptr;
-    cudaMalloc((void**)&d_lorenzStreamDevice, size);
-    cudaMemcpy(d_lorenzStreamDevice, h_lorenzBytes, size, cudaMemcpyHostToDevice);
+    // 5. THE BORDER CHECKPOINT (Pointer Aliasing across PCIe)
+    unsigned char* d_vramByteStream = nullptr;
+    cudaMalloc((void**)&d_vramByteStream, totalPayloadBytes);
 
-    delete[] h_lorenzBytes;
-    return d_lorenzStreamDevice; // Assigned directly to chaoticStreamLorenz!
+    // We pump the 32-bit CPU reservoir into the 8-bit VRAM landing pad.
+    // The GPU treats the incoming stream strictly as a flat array of 'totalPayloadBytes'!
+    cudaMemcpy(d_vramByteStream, cpuIntReservoir, totalPayloadBytes, cudaMemcpyHostToDevice);
+
+    return d_vramByteStream; // Assigned directly to your header's unsigned char*!
 }
 
 // ============================================================================
@@ -197,6 +208,8 @@ encryptionEngine::encryptionEngine(
 {
     isRunning = true;
     isPaused  = false;
+
+    m_referenceFormat = imageFormat;
 
     d_scratchA = nullptr; d_scratchB = nullptr; 
     d_scratchC = nullptr; d_scratchD = nullptr;
@@ -259,9 +272,18 @@ unsigned char* encryptionEngine::_LaunchPixelPermute(
 
 unsigned char* encryptionEngine::_LaunchPixelDiffuse(
     unsigned char* inputImage, unsigned char* diffusionMatrix, unsigned char* output, int size) {
+
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
+
+    // Step 1: Parallel XOR absorption (P_i ^ K_i) -> stored contiguously into output scratchpad
     _pixelDiffuseKernel<<<gridSize, blockSize>>>(inputImage, diffusionMatrix, output, size);
+
+    // Step 2: The GPU Sequential Trick (O(log N) Inclusive Prefix XOR Scan)
+    // This mathematically chains C_i = C_{i-1} ^ output[i] entirely inside high-speed VRAM!
+    thrust::device_ptr<unsigned char> dev_ptr(output);
+    thrust::inclusive_scan(dev_ptr, dev_ptr + size, dev_ptr, thrust::bit_xor<unsigned char>());
+
     return output;
 }
 
@@ -349,7 +371,16 @@ unsigned char* encryptionEngine::_decrypt(unsigned char* cypherTextImage, int si
 }
 
 bool encryptionEngine::pushImageIntoQueueBuffer(const unsigned char* input) {
-    return true;    // Placeholder stub matching .h
+    // 1. Clone the spatial metadata captured during engine boot
+    imageData newFrame = m_referenceFormat; 
+    
+    // 2. Safely cast away const-ness (STB allocated a mutable heap buffer anyway)
+    newFrame.imagePixelValues = const_cast<unsigned char*>(input); 
+
+    // 3. Thread-safe push onto the consumer processing queue!
+    m_inputImageQueueBuffer.push(newFrame);
+    
+    return true;
 }
 
 void encryptionEngine::stop() {
@@ -361,24 +392,21 @@ void encryptionEngine::run() {
     while(isRunning) {
         if(m_inputImageQueueBuffer.empty()) continue;
         
-        // Harvest spatial metadata from your queue struct
-        int width    = m_inputImageQueueBuffer.front().width;
-        int height   = m_inputImageQueueBuffer.front().height;
-        int channels = m_inputImageQueueBuffer.front().channels;
-        int size     = width * height * channels;
+        // Harvest byte payload and total size from your public queue handshake
+        unsigned char* rawPixels = m_inputImageQueueBuffer.front().imagePixelValues;
+        int streamByteSize       = m_inputImageQueueBuffer.front().sizeOfImageFileInByte;
 
-        unsigned char* cipherText = _encrypt(m_inputImageQueueBuffer.front().imagePixelValues, size);
+        unsigned char* cipherText = _encrypt(rawPixels, streamByteSize);
         m_inputImageQueueBuffer.pop();
 
-        // Ensure output directory exists contiguously on disk
         std::string output_dir = "outputs";
         if (!fs::exists(output_dir)) fs::create_directory(output_dir);
 
-        // Write the encrypted byte stream to disk as a lossless PNG
+        // Export the true, mathematically locked ciphertext frame contiguously to disk!
         std::string out_path = output_dir + "/encrypted_frame_" + std::to_string(frame_count++) + ".png";
-        stbi_write_png(out_path.c_str(), width, height, channels, cipherText, width * channels);
+        stbi_write_png(out_path.c_str(), g_streamWidth, g_streamHeight, g_streamChannels, cipherText, g_streamWidth * g_streamChannels);
 
-        // Safely free the harvested host RAM buffer
+        // Free the harvested host RAM buffer
         delete[] cipherText;
     }    
 }
