@@ -7,29 +7,33 @@
 #include<string>
 #include<array>
 
+#include"../chaoticSystems/chenChaoticSystem.h"
+#include"../chaoticSystems/lorenzHyperChaoticSystem.h"
+
+
+struct imageData{
+    unsigned char* imagePixelValues;
+    int sizeOfImageFileInByte;
+    int height;
+    int width;
+    int channels;
+};
+
 class encryptionEngine{
     private:
         //flags
         bool isRunning;
         bool isPaused;
 
-        std::array<double , 3> chenParameters;
-        std::array<double , 5> lorezParameters;
-        int chenInitialIterationCount;
-        int lorenzInitialIterationCount;
-
-        std::array<double , 3> chenStartingParameters;
-        std::array<double , 4> lorenzStartingParameters;
+        int                     m_streamSize;
+        chenInitialArguments    m_chenArguments;
+        lorenzInitialArguments  m_lorenzArguments;
 
     private:
         //internal data structures
-        struct imageData{
-            unsigned char* imagePixelValues;
-            int sizeOfImageFileInByte;
-        };
         std::queue<imageData>  m_inputImageQueueBuffer;
-        unsigned char * chaoticStreamChen;
-        unsigned char * chaoticStreamLorenz;
+        unsigned char * m_chaoticStreamChen;
+        unsigned char * m_chaoticStreamLorenz;
 
         int* d_permMap;
     private:
@@ -73,7 +77,7 @@ class encryptionEngine{
         unsigned char* _decrypt(unsigned char* , int size);
 
     public:
-        encryptionEngine();
+        encryptionEngine(const imageData& ,const chenInitialArguments& ,const lorenzInitialArguments&);
         ~encryptionEngine();
 
         bool pushImageIntoQueueBuffer(const unsigned char*);

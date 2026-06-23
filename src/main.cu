@@ -1,99 +1,159 @@
 #include <iostream>
 #include <filesystem>
-#include <cuda_runtime.h> // The core CUDA API
+#include <vector>
+#include <string>
+#include <thread>
+#include <chrono>
 
-#ifdef _WIN32
-#include <windows.h>
-extern "C" {
-    __declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
-}
-#endif
-
+// Instruct STB vendor headers to compile their native C bytecode implementation inline
+#define STB_IMAGE_IMPLEMENTATION
 #include "../vendor/stb/stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../vendor/stb/stb_image_write.h"
+
+// Include your overarching encryption engine and chaotic parameter contracts
+#include "encryptionEngine/encryptionEngine.h"
+#include "chaoticSystems/chenChaoticSystem.h"
+#include "chaoticSystems/lorenzHyperChaoticSystem.h"
 
 namespace fs = std::filesystem;
 
-// ---------------------------------------------------------
-// THE GPU KERNEL (Executes on the Device)
-// ---------------------------------------------------------
-__global__ void grayscaleKernel(unsigned char* d_in, unsigned char* d_out, int width, int height, int channels) {
-    // 1. Calculate the global thread ID (which pixel this specific thread is working on)
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-
-    // 2. Boundary check: Make sure we don't read outside the image array
-    if (x < width && y < height) {
-        // Map 2D coordinates back to the 1D contiguous memory index
-        int gray_index  = y * width + x; 
-        int rgb_index   = gray_index * channels;
-
-        unsigned char r = d_in[rgb_index];
-        unsigned char g = d_in[rgb_index + 1];
-        unsigned char b = d_in[rgb_index + 2];
-
-        // Apply the luminance formula
-        d_out[gray_index] = (unsigned char)(0.299f * r + 0.587f * g + 0.114f * b);
-    }
-}
-
-// ---------------------------------------------------------
-// THE CPU CONTROL FLOW (Executes on the Host)
-// ---------------------------------------------------------
 int main() {
-    int width, height, original_channels;
-    int desired_channels = 3; 
-    
-    // 1. Host Allocation (CPU RAM)
-    //this function allocates the data on the system RAM and returns the starting address
-    //populates the h_img pointer space and with the requried data depending on the desired channels
-    unsigned char *h_img = stbi_load("assets/input.png", &width, &height, &original_channels, desired_channels);
-    if (!h_img) {
-        printf("Error loading image.\n");
+    std::cout << "============================================================\n";
+    std::cout << "    HIGH-THROUGHPUT DNA CHAOTIC CRYPTO ENGINE (RTX 2050)    \n";
+    std::cout << "============================================================\n\n";
+
+    // ------------------------------------------------------------------------
+    // STAGE 1: I/O CONTAINER SANITIZATION & FILE GATHERING
+    // ------------------------------------------------------------------------
+    std::string asset_dir  = "assets";
+    std::string output_dir = "outputs";
+
+    if (!fs::exists(asset_dir)) {
+        std::cerr << "[SYSTEM ERROR]: Asset container directory '" << asset_dir << "' not found.\n";
         return 1;
     }
+    if (!fs::exists(output_dir)) {
+        fs::create_directory(output_dir);
+        std::cout << "[HOST I/O]: Created contiguous output destination '" << output_dir << "/'\n";
+    }
+
+    // Harvest all image file paths (PNG/JPG) contiguously from the assets directory
+    std::vector<std::string> image_filepaths;
+    for (const auto& entry : fs::directory_iterator(asset_dir)) {
+        if (entry.is_regular_file()) {
+            std::string ext = entry.path().extension().string();
+            // Convert extension to lowercase for robust matching
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") {
+                image_filepaths.push_back(entry.path().string());
+            }
+        }
+    }
+
+    if (image_filepaths.empty()) {
+        std::cerr << "[SYSTEM ERROR]: No valid image assets found inside '" << asset_dir << "/'.\n";
+        return 1;
+    }
+
+    std::cout << "[HOST I/O]: Successfully harvested " << image_filepaths.size() << " raw video frames contiguously.\n\n";
+
+    // ------------------------------------------------------------------------
+    // STAGE 2: THE IGNITION PEEK & MASTER KEY GENERATION
+    // ------------------------------------------------------------------------
+    std::cout << "[STAGE 2]: Decoding initial frame metadata to bound VRAM Arena...\n";
     
-    //this is the size of the total number of individual values 
-    //or elements that are to be inside the sequential RAM
-    size_t rgb_size             = width * height * desired_channels;    //here desired channel is the number of channels data that is to be loaded form the image file into the system ram as a contigous memory
-    size_t gray_size            = width * height * 1;
-    unsigned char *h_gray_img   = new unsigned char[gray_size];
-
-    // 2. Device Allocation (GPU VRAM)
-    unsigned char *d_in     = nullptr;
-    unsigned char *d_out    = nullptr;
-    cudaMalloc((void**)&d_in, rgb_size);        //allocates in the vram the mrmory for the data requried form the original image
-    cudaMalloc((void**)&d_out, gray_size);      //allocates in the vram the memory for the gray scale image
-
-    // 3. Transfer Host to Device (H2D)
-    //      (the pointer to the vram allocated , pointer to image in the ram , vram allocated memory size , parameter flags)
-    cudaMemcpy(d_in, h_img, rgb_size, cudaMemcpyHostToDevice);
-
-    // 4. Kernel Execution
-    // Define the grid size: blocks of 16x16 threads
-    dim3 blockSize(16, 16);
-    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+    int width, height, original_channels;
+    int desired_channels = 3; // Enforcing contiguous 3-channel RGB byte packing
     
-    // Launch the kernel!
-    grayscaleKernel<<<gridSize, blockSize>>>(d_in, d_out, width, height, desired_channels);
-    // Force CPU to wait until the GPU finishes processing
-    cudaDeviceSynchronize();
+    // Peek at the first frame to capture the stream's absolute spatial dimensions
+    unsigned char* h_firstFrameBytes = stbi_load(
+        image_filepaths[0].c_str(), &width, &height, &original_channels, desired_channels
+    );
 
-    // 5. Transfer Device to Host (D2H)
-    cudaMemcpy(h_gray_img, d_out, gray_size, cudaMemcpyDeviceToHost);
+    if (!h_firstFrameBytes) {
+        std::cerr << "[SYSTEM ERROR]: Failed to decode initial image asset: " << image_filepaths[0] << "\n";
+        return 1;
+    }
 
+    int total_stream_bytes = width * height * desired_channels;
 
-    //file saving part , save the file that is in the RAM into the disk
-    std::string output_dir = "outputs";
-    if (!fs::exists(output_dir)) fs::create_directory(output_dir);
-    stbi_write_png((output_dir + "/gpu_grayscale.png").c_str(), width, height, 1, h_gray_img, width);
+    // Package the captured metadata into your explicit constructor contract
+    imageData streamFormat;
+    streamFormat.imagePixelValues      = h_firstFrameBytes;
+    streamFormat.sizeOfImageFileInByte = total_stream_bytes;
+    streamFormat.width                 = width;
+    streamFormat.height                = height;
+    streamFormat.channels              = desired_channels;
 
-    // Cleanup Host and Device Memory
-    cudaFree(d_in);
-    cudaFree(d_out);
-    stbi_image_free(h_img);
-    delete[] h_gray_img;
+    // --- GENERATE MASTER SECRET KEYS (The unguessable initial coordinates) ---
+    std::cout << "[STAGE 2]: Instantiating Master Secret Keys (Kerckhoffs-Compliant)...\n";
+    
+    // Chen: (a=35, b=3, c=28), 1000 discard cycles, starting coordinate X, Y, Z
+    chenInitialArguments chenSecretKeys(
+        35.0f, 3.0f, 28.0f, 1000, 
+        0.1234567f, 0.5432198f, 0.9876543f
+    );
 
-    printf("GPU Processing Complete!\n");
+    // Lorenz: (a=10, b=8/3, c=46, d=2, e=12), 1500 discard cycles, starting coord X, Y, Z, W
+    lorenzInitialArguments lorenzSecretKeys(
+        10.0f, (8.0f / 3.0f), 46.0f, 2.0f, 12.0f, 1500, 
+        0.1111111f, 0.2222222f, 0.3333333f, 0.4444444f
+    );
+
+    // Boot the hardware: Ignites RK4 CPU solvers, executes Radix sort, allocates static VRAM arena!
+    std::cout << "[SYSTEM BOOT]: Igniting master encryptionEngine hardware...\n";
+    encryptionEngine masterEngine(streamFormat, chenSecretKeys, lorenzSecretKeys);
+
+    // We must push the first frame bytes into the queue buffer since we loaded them!
+    masterEngine.pushImageIntoQueueBuffer(h_firstFrameBytes);
+
+    // ------------------------------------------------------------------------
+    // STAGE 3: ASYNCHRONOUS MULTI-THREADED PIPELINE DISPATCH
+    // ------------------------------------------------------------------------
+    std::cout << "\n[STAGE 3]: Spawning dedicated background GPU Compute Worker Thread...\n";
+    // Spawns a background thread running the consumer polling loop: masterEngine.run()
+    std::thread computeWorker(&encryptionEngine::run, &masterEngine);
+
+    // PRODUCER LOOP: Primary CPU thread streams the remaining files contiguously into RAM
+    std::cout << "[PRODUCER]: Streaming remaining directory frames into engine queue...\n";
+    for (size_t i = 1; i < image_filepaths.size(); ++i) {
+        int w, h, c;
+        unsigned char* h_frameBytes = stbi_load(
+            image_filepaths[i].c_str(), &w, &h, &c, desired_channels
+        );
+
+        if (h_frameBytes) {
+            // Push raw host pointer into thread-safe queue buffer contiguously
+            masterEngine.pushImageIntoQueueBuffer(h_frameBytes);
+            std::cout << "  -> Queued Frame [" << i << "/" << (image_filepaths.size()-1) << "] : " << image_filepaths[i] << "\n";
+        } else {
+            std::cerr << "[SYSTEM WARNING]: Dropped corrupted frame asset: " << image_filepaths[i] << "\n";
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // STAGE 4: PIPELINE DRAIN & GRACEFUL HARDWARE JOIN
+    // ------------------------------------------------------------------------
+    std::cout << "\n[PRODUCER]: Directory ingestion complete. Draining VRAM compute arena...\n";
+    
+    // Give the GPU worker thread a brief temporal window to finish popping the final frames,
+    // executing the Galois math, and exporting the PNGs to disk.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    std::cout << "[SHUTDOWN]: Transmitting termination barrier to compute engine...\n";
+    masterEngine.stop();
+
+    // Join the GPU thread back to the main CPU thread contiguously
+    if (computeWorker.joinable()) {
+        computeWorker.join();
+        std::cout << "[SHUTDOWN]: GPU Compute Worker Thread successfully synchronized and joined.\n";
+    }
+
+    std::cout << "\n============================================================\n";
+    std::cout << " [SUCCESS]: Batch Cryptographic Processing Complete!        \n";
+    std::cout << " Verify your encrypted video frames inside '" << output_dir << "/'.\n";
+    std::cout << "============================================================\n";
+
     return 0;
 }

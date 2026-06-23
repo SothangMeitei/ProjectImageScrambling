@@ -1,25 +1,23 @@
-#include"lorenzStreamProcessor.h"
-#include <bit>
-#include <cstdint>
+#include "lorenzStreamProcessor.h"
+#include <cstring>
 
-void lorenzStreamProcessor::_floatToInt(){}
-
-lorenzStreamProcessor::lorenzStreamProcessor(int streamSize) 
-: m_size{streamSize} {
-    m_intStream = new uint32_t[m_size];
-}
-lorenzStreamProcessor::~lorenzStreamProcessor(){
-    delete [] m_intStream;
+lorenzStreamProcessor::lorenzStreamProcessor(int pixelCount) : m_size(pixelCount) {
+    m_byteStream = new unsigned char[m_size];
 }
 
-void lorenzStreamProcessor::ingestRawStream(const float* rawLorenzStream){
-    for(int i = 0 ; i < m_size ; ++i){
-        m_intStream[i] = extractIntegralValues(rawLorenzStream[i]);
+lorenzStreamProcessor::~lorenzStreamProcessor() {
+    delete[] m_byteStream;
+}
+
+void lorenzStreamProcessor::ingestRawStream(const float* rawLorenzStream, int floatCount) {
+    int byteIdx = 0;
+    for (int i = 0; i < floatCount && byteIdx < m_size; ++i) {
+        uint32_t bits;
+        std::memcpy(&bits, &rawLorenzStream[i], sizeof(float));
+        
+        // Unpack raw chaotic mantissa bits contiguously into 8-bit VRAM slots
+        m_byteStream[byteIdx++] = (bits      ) & 0xFF;
+        if (byteIdx < m_size) m_byteStream[byteIdx++] = (bits >>  8) & 0xFF;
+        if (byteIdx < m_size) m_byteStream[byteIdx++] = (bits >> 16) & 0xFF;
     }
-}
-
-uint32_t lorenzStreamProcessor::extractIntegralValues(float floatingValue)
-{
-    uint32_t bits = std::bit_cast<uint32_t>(floatingValue);
-    return bits & 0xFFFFFF; // extract lowest 24 bits
 }
