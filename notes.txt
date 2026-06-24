@@ -9,3 +9,7 @@ download the cuda thing
 and then migrate this form this vs code to the vs 2022
 then try implementation of one of the parallel gpu algorithm 
 for the gray scale conversion and then understand it
+
+
+this is the command line for the compilation of the files
+nvcc -std=c++17 -O3 -I. src/main.cu src/encryptionEngine/encryptionEngine.cu src/chaoticSystems/chenChaoticSystem.cpp src/chaoticSystems/lorenzHyperChaoticSystem.cpp src/chaoticStreamProcessing/chenStreamProcessor.cpp src/chaoticStreamProcessing/lorenzStreamProcessor.cpp -o DNA_CipherEngine.exe
