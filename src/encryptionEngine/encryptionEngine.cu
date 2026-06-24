@@ -215,7 +215,7 @@ encryptionEngine::encryptionEngine(
     d_scratchC = nullptr; d_scratchD = nullptr;
     m_currentArenaPixelSize = 0;
 
-    d_permMap           = nullptr;
+    d_permMap             = nullptr;
     m_chaoticStreamChen   = nullptr;
     m_chaoticStreamLorenz = nullptr;
 
