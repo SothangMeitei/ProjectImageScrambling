@@ -15,10 +15,10 @@
 #include <thrust/functional.h>
 
 namespace fs = std::filesystem;
-// Hardcoded spatial dimensions for the 640x360 Big Buck Bunny stream
 static int g_streamWidth    = 640;
 static int g_streamHeight   = 360;
 static int g_streamChannels = 3;
+
 // ============================================================================
 // 1. THE GPU KERNELS
 // ============================================================================
@@ -26,23 +26,8 @@ static int g_streamChannels = 3;
 __global__ void _bitReplaceKernel(unsigned char* input, unsigned char* output1, unsigned char* output2, int size) {
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < size) {
-        unsigned char current_byte = input[index];    
-        unsigned char buffer1 = 0;
-
-        for(int i = 0; i < 4; ++i) {
-            unsigned char b = (current_byte >> (4 + i)) & 1;
-            unsigned char pair = (b << 1) | (b ^ 1);            
-            buffer1 |= (pair << (2 * i));
-        }
-        output1[index] = buffer1;
-
-        unsigned char buffer2 = 0;
-        for(int i = 0; i < 4; ++i) {
-            unsigned char b = (current_byte >> i) & 1;
-            unsigned char pair = (b << 1) | (b ^ 1);
-            buffer2 |= (pair << (2 * i));
-        }
-        output2[index] = buffer2;
+        output1[index] = input[index];
+        output2[index] = 0x00; // Blank chaotic mask
     }
 }
 
@@ -73,9 +58,7 @@ __global__ void _DNAEncodingKernel(unsigned char* input, unsigned char* mapping,
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index < size) {
         unsigned char current_byte = input[index];
-        int rule = mapping[index] % 8; 
-
-        // Safely extract 2-bit chunks to prevent out-of-bounds constant memory access
+        int rule = mapping[index] % 8; // Safely restrains the 8-bit noise to 0-7 dynamically
         unsigned char buffer = 0;
         for (int b = 0; b < 4; ++b) {
             int base_val = (current_byte >> (2 * b)) & 3; 
@@ -100,7 +83,6 @@ __global__ void _performDNAOperationKernel(unsigned char* input, unsigned char* 
         for (int b = 0; b < 4; ++b) {
             int img_base = (img_byte >> (2 * b)) & 3;
             int key_base = (key_byte >> (2 * b)) & 3;
-            
             int added_base = performDNA_Addition(img_base, key_base);
             result_byte |= (added_base << (2 * b));
         }
@@ -111,7 +93,6 @@ __global__ void _performDNAOperationKernel(unsigned char* input, unsigned char* 
 __global__ void _performDNADecodingKernel(unsigned char* input, unsigned char* output, int size) {
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index < size) {
-        // Identity copy: Preserves the Galois field ciphertext bits safely
         output[index] = input[index];
     }
 }
@@ -119,42 +100,43 @@ __global__ void _performDNADecodingKernel(unsigned char* input, unsigned char* o
 __global__ void _mergeTwoHalvesKernel(unsigned char* input1, unsigned char* input2, unsigned char* output, int size) {
     long long index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index < size) {
-        output[index] = input1[index] | input2[index];
+        //this merges the two image files using the XOR that is does not have the bias like OR operation do
+        output[index] = input1[index] ^ input2[index]; // Bitwise XOR removes all probabilistic bias
     }
 }
 
-// ============================================================================
-// 2. THE HOST DISPATCH WRAPPERS (Strictly matching .h signatures!)
-// ============================================================================
 
 // ============================================================================
-// 1. CHAOTIC STREAM GENERATORS & VRAM BRIDGES (CPU Host Execution)
+// 2. CHAOTIC STREAM GENERATORS & VRAM BRIDGES
 // ============================================================================
 
 unsigned char* encryptionEngine::chen3DChaoticStream() {
     int size = m_streamSize;
 
-    // 1. Fire up the Chen RK4 Differential Solver on CPU RAM
     chenChaoticSystem chenSolver(m_chenArguments, size);
     chenSolver.generate();
     chaoticStreamChen rawChen = chenSolver.getChaoticStreams();
 
-    // 2. Build GPU Permutation Map (d_permMap) using Chen Axis X
     chenStreamProcessor permProcessor(size);
     permProcessor.ingestRawStream(rawChen.x);
     permProcessor.sortAndExtractMapping();
 
-    // Bridge the flat permutation indices contiguously across PCIe to VRAM
     cudaMalloc((void**)&d_permMap, size * sizeof(int));
     cudaMemcpy(d_permMap, permProcessor.getGPUFlatMapping(), size * sizeof(int), cudaMemcpyHostToDevice);
 
-    // 3. Build Watson-Crick Polymorphic Rule Stream using Chen Axis Y
-    // Extract raw mantissa entropy and bound to legal rules (0 to 7)
+    // MINT PURE 8-BIT NOISE (Removes the & 7 underflow trap!)
     unsigned char* h_dnaRules = new unsigned char[size];
     for (int i = 0; i < size; ++i) {
         uint32_t bits;
         std::memcpy(&bits, &rawChen.y[i], sizeof(float));
-        h_dnaRules[i] = (unsigned char)(bits & 7); 
+        
+        bits ^= bits >> 16;
+        bits *= 0x85ebca6b;
+        bits ^= bits >> 13;
+        bits *= 0xc2b2ae35;
+        bits ^= bits >> 16;
+        
+        h_dnaRules[i] = (unsigned char)(bits & 0xFF); 
     }
 
     unsigned char* d_dnaRulesDevice = nullptr;
@@ -162,39 +144,29 @@ unsigned char* encryptionEngine::chen3DChaoticStream() {
     cudaMemcpy(d_dnaRulesDevice, h_dnaRules, size, cudaMemcpyHostToDevice);
 
     delete[] h_dnaRules;
-    return d_dnaRulesDevice; // Assigned directly to chaoticStreamChen!
+    return d_dnaRulesDevice; 
 }
 
 unsigned char* encryptionEngine::lorenz4DHyperChaoticStream() {
-    // 1. Ask the active stream format for the EXACT number of raw image bytes
     size_t totalPayloadBytes = m_referenceFormat.sizeOfImageFileInByte;
-
-    // 2. Calculate how many 32-bit integers we need to mint to cover those bytes.
-    // (A 32-bit int holds 4 bytes. We add +3 before integer division to force a ceil() round-up!)
     size_t requiredIntWords = (totalPayloadBytes + 3) / 4;
 
-    // 3. Fire up the ODE solver for 'requiredIntWords' steps
     lorenzChaoticSystem lorenzSolver(m_lorenzArguments, requiredIntWords);
     lorenzSolver.generate();
 
-    // 4. Mint the dense 32-bit entropy words
     lorenzStreamProcessor mint(requiredIntWords);
     mint.ingestRawStream(lorenzSolver.getChaoticStream().x);
     uint32_t* cpuIntReservoir = mint.getDiffusionValues();
 
-    // 5. THE BORDER CHECKPOINT (Pointer Aliasing across PCIe)
     unsigned char* d_vramByteStream = nullptr;
     cudaMalloc((void**)&d_vramByteStream, totalPayloadBytes);
-
-    // We pump the 32-bit CPU reservoir into the 8-bit VRAM landing pad.
-    // The GPU treats the incoming stream strictly as a flat array of 'totalPayloadBytes'!
     cudaMemcpy(d_vramByteStream, cpuIntReservoir, totalPayloadBytes, cudaMemcpyHostToDevice);
 
-    return d_vramByteStream; // Assigned directly to your header's unsigned char*!
+    return d_vramByteStream; 
 }
 
 // ============================================================================
-// 2. ENGINE LIFECYCLE (The Ignition Switch)
+// 3. ENGINE LIFECYCLE
 // ============================================================================
 
 encryptionEngine::encryptionEngine(
@@ -208,7 +180,6 @@ encryptionEngine::encryptionEngine(
 {
     isRunning = true;
     isPaused  = false;
-
     m_referenceFormat = imageFormat;
 
     d_scratchA = nullptr; d_scratchB = nullptr; 
@@ -219,17 +190,11 @@ encryptionEngine::encryptionEngine(
     m_chaoticStreamChen   = nullptr;
     m_chaoticStreamLorenz = nullptr;
 
-    std::cout << "[ENGINE BOOT]: Igniting Chen 3D & Lorenz 4D Differential Solvers...\n";
-    
-    // Generate CPU chaos, execute Radix sorting, and bridge pointers to VRAM
     m_chaoticStreamChen   = chen3DChaoticStream();
     m_chaoticStreamLorenz = lorenz4DHyperChaoticStream();
-
-    std::cout << "[ENGINE BOOT]: Master Secret Key VRAM Arenas successfully populated.\n";
 }
 
 encryptionEngine::~encryptionEngine() {
-    // Scrub all secret cryptographic buffers from physical silicon
     if (d_scratchA) { 
         cudaFree(d_scratchA); cudaFree(d_scratchB); 
         cudaFree(d_scratchC); cudaFree(d_scratchD); 
@@ -249,7 +214,6 @@ void encryptionEngine::_reallocateVRAMScratchpadIfNeeded(size_t required_size) {
         cudaMalloc((void**)&d_scratchB, required_size);
         cudaMalloc((void**)&d_scratchC, required_size);
         cudaMalloc((void**)&d_scratchD, required_size);
-        
         m_currentArenaPixelSize = required_size;
     }
 }
@@ -272,15 +236,12 @@ unsigned char* encryptionEngine::_LaunchPixelPermute(
 
 unsigned char* encryptionEngine::_LaunchPixelDiffuse(
     unsigned char* inputImage, unsigned char* diffusionMatrix, unsigned char* output, int size) {
-
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
 
-    // Step 1: Parallel XOR absorption (P_i ^ K_i) -> stored contiguously into output scratchpad
     _pixelDiffuseKernel<<<gridSize, blockSize>>>(inputImage, diffusionMatrix, output, size);
 
-    // Step 2: The GPU Sequential Trick (O(log N) Inclusive Prefix XOR Scan)
-    // This mathematically chains C_i = C_{i-1} ^ output[i] entirely inside high-speed VRAM!
+    // O(log N) Inclusive Prefix XOR Scan natively in VRAM
     thrust::device_ptr<unsigned char> dev_ptr(output);
     thrust::inclusive_scan(dev_ptr, dev_ptr + size, dev_ptr, thrust::bit_xor<unsigned char>());
 
@@ -320,66 +281,45 @@ unsigned char* encryptionEngine::_LauchImageMerginZip(
 }
 
 // ============================================================================
-// 3. THE MASTER RELAY EXECUTION
+// 4. THE MASTER RELAY EXECUTION
 // ============================================================================
 
 unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage, int size) {
     
     _reallocateVRAMScratchpadIfNeeded(size);
-
-    // Copy host plaintext image into VRAM landing pad (ScratchB)
     cudaMemcpy(d_scratchB, plainTextInputImage, size, cudaMemcpyHostToDevice);
 
-    // --- THE POINTER RELAY (Capturing returns per .h contract) ---
-
-    // Stage 1: Split ScratchB ---> returns {ScratchA, ScratchC}
     std::pair<unsigned char*, unsigned char*> split = 
         _LaunchBitReplace(d_scratchB, d_scratchA, d_scratchC, size);
 
-    // Stage 2: Permute split halves ---> returns ScratchB and ScratchD
     unsigned char* permMSB = _LaunchPixelPermute(split.first,  d_scratchB, d_permMap, size);
-    unsigned char* permLSB = _LaunchPixelPermute(split.second, d_scratchD, d_permMap, size);
+    unsigned char* permLSB = _LaunchPixelPermute(split.second, d_scratchD, d_permMap, size);    //this too is useless ,as all 0's
 
-    // Stage 3: Diffuse permuted halves ---> returns ScratchA and ScratchC
+    // Cross-Pollinated Keys (Breaks correlation collisions)
     unsigned char* diffMSB = _LaunchPixelDiffuse(permMSB, m_chaoticStreamLorenz, d_scratchA, size);
-    unsigned char* diffLSB = _LaunchPixelDiffuse(permLSB, m_chaoticStreamLorenz, d_scratchC, size);
+    unsigned char* diffLSB = _LaunchPixelDiffuse(permLSB, m_chaoticStreamChen,   d_scratchC, size);
 
-    // Stage 4: DNA Encode diffused halves ---> returns ScratchB and ScratchD
-    unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen, d_scratchB, size);
-    unsigned char* dnaLSB = _LaunchDNAEncoding(diffLSB, m_chaoticStreamChen, d_scratchD, size);
+    unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen,   d_scratchB, size);
+    unsigned char* dnaLSB = _LaunchDNAEncoding(diffLSB, m_chaoticStreamLorenz, d_scratchD, size);
 
-    // Stage 5: Perform DNA Addition ---> returns ScratchA and ScratchC
     unsigned char* opMSB = _LaunchPerformDNAOperation(dnaMSB, m_chaoticStreamLorenz, d_scratchA, size);
-    unsigned char* opLSB = _LaunchPerformDNAOperation(dnaLSB, m_chaoticStreamLorenz, d_scratchC, size);
+    unsigned char* opLSB = _LaunchPerformDNAOperation(dnaLSB, m_chaoticStreamChen,   d_scratchC, size);
 
-    // Stage 6: DNA Decode ---> returns ScratchB and ScratchD
-    unsigned char* decMSB = _LaunchDNADecoding(opMSB, d_scratchB, size);
-    unsigned char* decLSB = _LaunchDNADecoding(opLSB, d_scratchD, size);
+    unsigned char* decMSB = _LaunchDNADecoding(opMSB, d_scratchB, size);    //for now this is useless
+    unsigned char* decLSB = _LaunchDNADecoding(opLSB, d_scratchD, size);    //this also the same case
 
-    // Stage 7: Zip decoded halves contiguously back together ---> returns ScratchA
     unsigned char* finalEncryptedDevice = _LauchImageMerginZip(decMSB, decLSB, d_scratchA, size);
 
-    // Harvest finished ciphertext back to Host RAM
     unsigned char* h_encrypted_output = new unsigned char[size];
     cudaMemcpy(h_encrypted_output, finalEncryptedDevice, size, cudaMemcpyDeviceToHost);
 
     return h_encrypted_output;
 }
 
-unsigned char* encryptionEngine::_decrypt(unsigned char* cypherTextImage, int size) {
-    return nullptr; // Placeholder stub matching .h
-}
-
 bool encryptionEngine::pushImageIntoQueueBuffer(const unsigned char* input) {
-    // 1. Clone the spatial metadata captured during engine boot
     imageData newFrame = m_referenceFormat; 
-    
-    // 2. Safely cast away const-ness (STB allocated a mutable heap buffer anyway)
     newFrame.imagePixelValues = const_cast<unsigned char*>(input); 
-
-    // 3. Thread-safe push onto the consumer processing queue!
     m_inputImageQueueBuffer.push(newFrame);
-    
     return true;
 }
 
@@ -392,7 +332,6 @@ void encryptionEngine::run() {
     while(isRunning) {
         if(m_inputImageQueueBuffer.empty()) continue;
         
-        // Harvest byte payload and total size from your public queue handshake
         unsigned char* rawPixels = m_inputImageQueueBuffer.front().imagePixelValues;
         int streamByteSize       = m_inputImageQueueBuffer.front().sizeOfImageFileInByte;
 
@@ -402,11 +341,9 @@ void encryptionEngine::run() {
         std::string output_dir = "outputs";
         if (!fs::exists(output_dir)) fs::create_directory(output_dir);
 
-        // Export the true, mathematically locked ciphertext frame contiguously to disk!
         std::string out_path = output_dir + "/encrypted_frame_" + std::to_string(frame_count++) + ".png";
         stbi_write_png(out_path.c_str(), g_streamWidth, g_streamHeight, g_streamChannels, cipherText, g_streamWidth * g_streamChannels);
 
-        // Free the harvested host RAM buffer
         delete[] cipherText;
     }    
 }

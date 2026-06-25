@@ -175,13 +175,12 @@ for cipher_file in cipher_files:
 
     plain=cv2.imread(
         plain_path,
-        cv2.IMREAD_GRAYSCALE
+        cv2.IMREAD_COLOR # <-- STOP SQUASHING THE CHAOS!
     )
-
 
     cipher=cv2.imread(
         cipher_path,
-        cv2.IMREAD_GRAYSCALE
+        cv2.IMREAD_COLOR # <-- STOP SQUASHING THE CHAOS!
     )
 
 
