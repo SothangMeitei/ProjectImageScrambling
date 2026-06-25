@@ -23,9 +23,7 @@ int main() {
     std::cout << "    HIGH-THROUGHPUT DNA CHAOTIC CRYPTO ENGINE (RTX 2050)    \n";
     std::cout << "============================================================\n\n";
 
-    // ------------------------------------------------------------------------
     // STAGE 1: I/O CONTAINER SANITIZATION & FILE GATHERING
-    // ------------------------------------------------------------------------
     std::string asset_dir  = "assets";
     std::string output_dir = "outputs";
 

@@ -74,8 +74,6 @@ class encryptionEngine{
         unsigned char* _LauchImageMerginZip(unsigned char*, unsigned char*, unsigned char* , int);
 
         unsigned char* _encrypt(unsigned char* , int size);
-        unsigned char* _decrypt(unsigned char* , int size);
-
     public:
         encryptionEngine(const imageData& ,const chenInitialArguments& ,const lorenzInitialArguments&);
         ~encryptionEngine();
