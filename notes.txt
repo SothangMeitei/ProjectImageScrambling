@@ -13,3 +13,17 @@ for the gray scale conversion and then understand it
 
 this is the command line for the compilation of the files
 nvcc -std=c++17 -O3 -I. src/main.cu src/encryptionEngine/encryptionEngine.cu src/chaoticSystems/chenChaoticSystem.cpp src/chaoticSystems/lorenzHyperChaoticSystem.cpp src/chaoticStreamProcessing/chenStreamProcessor.cpp src/chaoticStreamProcessing/lorenzStreamProcessor.cpp -o DNA_CipherEngine.exe
+
+
+nvcc -std=c++17 -O3 -Xcompiler /Zc:preprocessor -DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING -I. src/main.cu src/encryptionEngine/encryptionEngine.cu src/chaoticSystems/chenChaoticSystem.cpp src/chaoticSystems/lorenzHyperChaoticSystem.cpp src/chaoticStreamProcessing/chenStreamProcessor.cpp src/chaoticStreamProcessing/lorenzStreamProcessor.cpp src/encryptionEngine/decryptionEngine.cu -o DNA_CipherEngine.exe
+
+
+catalog for all the analysis techniques and why they are used in this manner for the encryption techinques
+
+spatial analysis
+correlation analysis
+entropy global and local entropy analysis
+differential analysis(testing of the avalance effect)
+key space and key sensitivity(Tested using the NIIST testing suite)
+choosen plain text attack
+cropping and noise introduction attack analysis

@@ -1,0 +1,13 @@
+# DNA Cipher Engine - Directory Configuration
+
+[ENCRYPT]
+encrypt_src = assets
+encrypt_out = outputs
+
+[DECRYPT]
+decrypt_src = outputs
+decrypt_out = decrypted_outputs
+
+[BENCHMARK]
+benchmark_src = assets
+benchmark_out = benchmark_outputs

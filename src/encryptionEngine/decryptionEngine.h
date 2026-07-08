@@ -8,23 +8,20 @@
 #include<functional>
 #include<string>
 #include<array>
+#include<mutex>
 
 #include"../chaoticSystems/chenChaoticSystem.h"
 #include"../chaoticSystems/lorenzHyperChaoticSystem.h"
-
-struct imageData{
-    unsigned char* imagePixelValues;
-    int sizeOfImageFileInByte;
-    int height;
-    int width;
-    int channels;
-};
+#include"imageData.h"
 
 class decryptionEngine{
     private:
         //internal flags
         bool isRunning;
         bool isPaused;
+        std::mutex m_queueMutex;
+        
+        std::string m_outputDir;
 
     private:
         std::queue<imageData> m_decryptionQueue;
@@ -54,6 +51,7 @@ class decryptionEngine{
         //internal decryption functions
         unsigned char* _reversePermute(unsigned char* input, int* permutationMap , unsigned char* output , int size);
         unsigned char* _reverseDiffuse(unsigned char* input, unsigned char* diffusionKey , unsigned char* output, int size);
+        unsigned char* _launchBiDirectionalARXInverseDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height);
         unsigned char* _reverseDNAEncoding(unsigned char* input, unsigned char* ruleKey , unsigned char* output, int size);
         unsigned char* _reverseDNAOperation(unsigned char* input ,unsigned char* chaoticStream, unsigned char* output, int size);
         unsigned char* _reverseImageZipping(unsigned char* input1 , unsigned char* input2 , unsigned char* output, int size);
@@ -61,12 +59,14 @@ class decryptionEngine{
         unsigned char* _decrypt(unsigned char* cipherText, int size);
 
     public:
-        decryptionEngine(const imageData& , const chenInitialArguments& , const lorenzInitialArguments&);
+        decryptionEngine(const imageData& , const chenInitialArguments& , const lorenzInitialArguments& , const std::string&);
         ~decryptionEngine();
+
+        int getRemainingQueueSize(){return m_decryptionQueue.size();}
         //this will return false on faliur
         bool pushIntoTheQueue(imageData&);
         void run();
-        void stop(){isRunning = false;}
-        void pause(){isPaused = true;}
-        void resume(){isPaused = false;}
+        void stop();
+        void pause();
+        void resume();
 };

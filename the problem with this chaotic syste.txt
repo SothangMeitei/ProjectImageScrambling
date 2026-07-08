@@ -1,0 +1,10 @@
+the problem with this chaotic system is the fact that this is not a discrete system that is going to be good for the computation by the computer 
+, after some point in time this there is going to be a decay in the quality and precision of the computed value of the keystream
+
+so this is just 
+floating point arithmatic vs , continous real world non-linear dynamics 
+
+for the condition of the computation the divergence in the value is to be calculated using the lyaponov constant
+
+what is this lyaponov exponent
+what is the phase space boundedness condition of the chaotic system

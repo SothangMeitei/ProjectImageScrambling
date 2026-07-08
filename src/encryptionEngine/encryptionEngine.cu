@@ -1,5 +1,4 @@
 #pragma once
-#include <cuda_runtime.h>
 #include "encryptionEngine.h"
 
 #include "../../vendor/stb/stb_image.h"
@@ -10,105 +9,17 @@
 #include"../chaoticStreamProcessing/chenStreamProcessor.h"
 #include"../chaoticStreamProcessing/lorenzStreamProcessor.h"
 
-#include <thrust/scan.h>
-#include <thrust/device_ptr.h>
-#include <thrust/functional.h>
+#include<thread>
+
+#include <cuda_runtime.h>
+#include "../kernelCode/kernelsEncrypt.cuh"
 
 namespace fs = std::filesystem;
 static int g_streamWidth    = 640;
 static int g_streamHeight   = 360;
 static int g_streamChannels = 3;
 
-// ============================================================================
-// 1. THE GPU KERNELS
-// ============================================================================
-
-__global__ void _bitReplaceKernel(unsigned char* input, unsigned char* output1, unsigned char* output2, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < size) {
-        output1[index] = input[index];
-        output2[index] = 0x00; // Blank chaotic mask
-    }
-}
-
-__global__ void _pixelPermuteKernel(unsigned char* inputImage, unsigned char* outputImage, int* mapping, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if(index < size) {
-        outputImage[mapping[index]] = inputImage[index];
-    }
-}
-
-__global__ void _pixelDiffuseKernel(unsigned char* input, unsigned char* diffusionMatrix, unsigned char* output, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if(index < size) {
-        output[index] = input[index] ^ diffusionMatrix[index];
-    }
-}
-
-__constant__ int d_DNA_ENCODING_RULES[8][4] = {
-    {0, 1, 2, 3}, {0, 2, 1, 3}, {1, 0, 3, 2}, {1, 3, 0, 2},
-    {3, 1, 2, 0}, {3, 2, 1, 0}, {2, 0, 3, 1}, {2, 3, 0, 1}
-};
-
-__device__ int encodeDNA(int binary_val, int rule_index) {
-    return d_DNA_ENCODING_RULES[rule_index][binary_val];
-}
-
-__global__ void _DNAEncodingKernel(unsigned char* input, unsigned char* mapping, unsigned char* output, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if(index < size) {
-        unsigned char current_byte = input[index];
-        int rule = mapping[index] % 8; // Safely restrains the 8-bit noise to 0-7 dynamically
-        unsigned char buffer = 0;
-        for (int b = 0; b < 4; ++b) {
-            int base_val = (current_byte >> (2 * b)) & 3; 
-            int encoded_base = encodeDNA(base_val, rule);
-            buffer |= (encoded_base << (2 * b));
-        }
-        output[index] = buffer;
-    }
-}
-
-__device__ int performDNA_Addition(int pixel_dna, int key_dna) {
-    return (pixel_dna + key_dna) % 4;
-}
-
-__global__ void _performDNAOperationKernel(unsigned char* input, unsigned char* chaoticStream, unsigned char* output, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if(index < size) {
-        unsigned char img_byte = input[index];
-        unsigned char key_byte = chaoticStream[index];
-
-        unsigned char result_byte = 0;
-        for (int b = 0; b < 4; ++b) {
-            int img_base = (img_byte >> (2 * b)) & 3;
-            int key_base = (key_byte >> (2 * b)) & 3;
-            int added_base = performDNA_Addition(img_base, key_base);
-            result_byte |= (added_base << (2 * b));
-        }
-        output[index] = result_byte;
-    }
-}
-
-__global__ void _performDNADecodingKernel(unsigned char* input, unsigned char* output, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if(index < size) {
-        output[index] = input[index];
-    }
-}
-
-__global__ void _mergeTwoHalvesKernel(unsigned char* input1, unsigned char* input2, unsigned char* output, int size) {
-    long long index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index < size) {
-        //this merges the two image files using the XOR that is does not have the bias like OR operation do
-        output[index] = input1[index] ^ input2[index]; // Bitwise XOR removes all probabilistic bias
-    }
-}
-
-
-// ============================================================================
-// 2. CHAOTIC STREAM GENERATORS & VRAM BRIDGES
-// ============================================================================
+//chaotic stream generation and then host to device transfer of data of the chaotic stream
 
 unsigned char* encryptionEngine::chen3DChaoticStream() {
     int size = m_streamSize;
@@ -146,7 +57,6 @@ unsigned char* encryptionEngine::chen3DChaoticStream() {
     delete[] h_dnaRules;
     return d_dnaRulesDevice; 
 }
-
 unsigned char* encryptionEngine::lorenz4DHyperChaoticStream() {
     size_t totalPayloadBytes = m_referenceFormat.sizeOfImageFileInByte;
     size_t requiredIntWords = (totalPayloadBytes + 3) / 4;
@@ -165,18 +75,18 @@ unsigned char* encryptionEngine::lorenz4DHyperChaoticStream() {
     return d_vramByteStream; 
 }
 
-// ============================================================================
-// 3. ENGINE LIFECYCLE
-// ============================================================================
+//engine initialization
 
 encryptionEngine::encryptionEngine(
       const imageData& imageFormat 
     , const chenInitialArguments& chenArguments
-    , const lorenzInitialArguments& lorenzArguments)
+    , const lorenzInitialArguments& lorenzArguments
+    , const std::string& outputDir)
     
     : m_chenArguments{chenArguments} 
     , m_lorenzArguments{lorenzArguments}
     , m_streamSize{imageFormat.sizeOfImageFileInByte}
+    , m_outputDir{outputDir}
 {
     isRunning = true;
     isPaused  = false;
@@ -218,6 +128,8 @@ void encryptionEngine::_reallocateVRAMScratchpadIfNeeded(size_t required_size) {
     }
 }
 
+//internal functions operating on the data stored in the gpu and the cpu
+
 std::pair<unsigned char*, unsigned char*> encryptionEngine::_LaunchBitReplace(
     unsigned char* inputImage, unsigned char* output1, unsigned char* output2, int size) {
     int blockSize = 256;
@@ -234,18 +146,26 @@ unsigned char* encryptionEngine::_LaunchPixelPermute(
     return output;
 }
 
-unsigned char* encryptionEngine::_LaunchPixelDiffuse(
-    unsigned char* inputImage, unsigned char* diffusionMatrix, unsigned char* output, int size) {
-    int blockSize = 256;
-    int gridSize = (size + blockSize - 1) / blockSize;
+unsigned char* encryptionEngine::_launchBiDirectionalARXDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
+    int threadsPerBlock = 256;
 
-    _pixelDiffuseKernel<<<gridSize, blockSize>>>(inputImage, diffusionMatrix, output, size);
+    // 1. Calculate grid for Columns
+    int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
+    _diffuseColumnTopToBottomKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
 
-    // O(log N) Inclusive Prefix XOR Scan natively in VRAM
-    thrust::device_ptr<unsigned char> dev_ptr(output);
-    thrust::inclusive_scan(dev_ptr, dev_ptr + size, dev_ptr, thrust::bit_xor<unsigned char>());
+    _diffuseColumnBottomToTopKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
 
-    return output;
+    // 2. Calculate grid for Rows
+    int blocksRow = (height + threadsPerBlock - 1) / threadsPerBlock;
+    _diffuseRowLeftToRightKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    _diffuseRowRightToLeftKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    return d_data;
 }
 
 unsigned char* encryptionEngine::_LaunchDNAEncoding(
@@ -280,9 +200,7 @@ unsigned char* encryptionEngine::_LauchImageMerginZip(
     return output;
 }
 
-// ============================================================================
-// 4. THE MASTER RELAY EXECUTION
-// ============================================================================
+
 
 unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage, int size) {
     
@@ -295,18 +213,17 @@ unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage, in
     unsigned char* permMSB = _LaunchPixelPermute(split.first,  d_scratchB, d_permMap, size);
     unsigned char* permLSB = _LaunchPixelPermute(split.second, d_scratchD, d_permMap, size);    //this too is useless ,as all 0's
 
-    // Cross-Pollinated Keys (Breaks correlation collisions)
-    unsigned char* diffMSB = _LaunchPixelDiffuse(permMSB, m_chaoticStreamLorenz, d_scratchA, size);
-    unsigned char* diffLSB = _LaunchPixelDiffuse(permLSB, m_chaoticStreamChen,   d_scratchC, size);
+    unsigned char* diffMSB = _launchBiDirectionalARXDiffusion(permMSB , m_chaoticStreamLorenz ,m_referenceFormat.width * m_referenceFormat.channels, m_referenceFormat.height);
+    unsigned char* diffLSB = _launchBiDirectionalARXDiffusion(permLSB , m_chaoticStreamChen   ,m_referenceFormat.width * m_referenceFormat.channels, m_referenceFormat.height);
 
-    unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen,   d_scratchB, size);
-    unsigned char* dnaLSB = _LaunchDNAEncoding(diffLSB, m_chaoticStreamLorenz, d_scratchD, size);
+    unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen,   d_scratchA, size);
+    unsigned char* dnaLSB = _LaunchDNAEncoding(diffLSB, m_chaoticStreamLorenz, d_scratchC, size);
 
-    unsigned char* opMSB = _LaunchPerformDNAOperation(dnaMSB, m_chaoticStreamLorenz, d_scratchA, size);
-    unsigned char* opLSB = _LaunchPerformDNAOperation(dnaLSB, m_chaoticStreamChen,   d_scratchC, size);
+    unsigned char* opMSB = _LaunchPerformDNAOperation(dnaMSB, m_chaoticStreamLorenz, d_scratchB, size);
+    unsigned char* opLSB = _LaunchPerformDNAOperation(dnaLSB, m_chaoticStreamChen,   d_scratchD, size);
 
-    unsigned char* decMSB = _LaunchDNADecoding(opMSB, d_scratchB, size);    //for now this is useless
-    unsigned char* decLSB = _LaunchDNADecoding(opLSB, d_scratchD, size);    //this also the same case
+    unsigned char* decMSB = _LaunchDNADecoding(opMSB, d_scratchA, size);    //for now this is useless
+    unsigned char* decLSB = _LaunchDNADecoding(opLSB, d_scratchC, size);    //this also the same case
 
     unsigned char* finalEncryptedDevice = _LauchImageMerginZip(decMSB, decLSB, d_scratchA, size);
 
@@ -319,29 +236,47 @@ unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage, in
 bool encryptionEngine::pushImageIntoQueueBuffer(const unsigned char* input) {
     imageData newFrame = m_referenceFormat; 
     newFrame.imagePixelValues = const_cast<unsigned char*>(input); 
+    
+    std::lock_guard<std::mutex> lock(m_queueMutex);
     m_inputImageQueueBuffer.push(newFrame);
+    
     return true;
 }
 
 void encryptionEngine::stop() {
     isRunning = false;
 }
-
 void encryptionEngine::run() {
     int frame_count = 0;
     while(isRunning) {
-        if(m_inputImageQueueBuffer.empty()) continue;
-        
-        unsigned char* rawPixels = m_inputImageQueueBuffer.front().imagePixelValues;
-        int streamByteSize       = m_inputImageQueueBuffer.front().sizeOfImageFileInByte;
+        if(m_inputImageQueueBuffer.empty()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2)); // Prevents 100% CPU core spin
+            continue;
+        }
+        unsigned char* rawPixels{nullptr};
+        int streamByteSize{0};
+
+
+        { // CREATE A SCOPE BLOCK FOR THE MUTEX
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            
+            if(m_inputImageQueueBuffer.empty()) {
+                // If empty, the lock_guard is automatically released here
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                continue;
+            }
+            
+            // Extract data and safely pop INSIDE the lock
+            rawPixels = m_inputImageQueueBuffer.front().imagePixelValues;
+            streamByteSize = m_inputImageQueueBuffer.front().sizeOfImageFileInByte;
+            m_inputImageQueueBuffer.pop(); 
+            
+        }
 
         unsigned char* cipherText = _encrypt(rawPixels, streamByteSize);
-        m_inputImageQueueBuffer.pop();
+        if (!fs::exists(m_outputDir)) fs::create_directory(m_outputDir);
 
-        std::string output_dir = "outputs";
-        if (!fs::exists(output_dir)) fs::create_directory(output_dir);
-
-        std::string out_path = output_dir + "/encrypted_frame_" + std::to_string(frame_count++) + ".png";
+        std::string out_path = m_outputDir + "/encrypted_frame_" + std::to_string(frame_count++) + ".png";
         stbi_write_png(out_path.c_str(), g_streamWidth, g_streamHeight, g_streamChannels, cipherText, g_streamWidth * g_streamChannels);
 
         delete[] cipherText;

@@ -6,24 +6,20 @@
 #include<functional>
 #include<string>
 #include<array>
+#include<mutex>
 
 #include"../chaoticSystems/chenChaoticSystem.h"
 #include"../chaoticSystems/lorenzHyperChaoticSystem.h"
-
-
-struct imageData{
-    unsigned char* imagePixelValues;
-    int sizeOfImageFileInByte;
-    int height;
-    int width;
-    int channels;
-};
+#include"imageData.h"
 
 class encryptionEngine{
     private:
         //flags
         bool isRunning;
         bool isPaused;
+        std::mutex m_queueMutex;
+
+        std::string m_outputDir;
 
         int                     m_streamSize;
         imageData               m_referenceFormat;
@@ -68,6 +64,7 @@ class encryptionEngine{
         //all of which is just the input , output , size ; in that order in this generation of the next stage in the pipeline the same vram location may be reused
         unsigned char* _LaunchPixelPermute(unsigned char* , unsigned char* , int* , int);
         unsigned char* _LaunchPixelDiffuse(unsigned char* , unsigned char* ,unsigned char* , int);
+        unsigned char* _launchBiDirectionalARXDiffusion(unsigned char* , unsigned char* , int  ,int);
         unsigned char* _LaunchDNAEncoding(unsigned char* , unsigned char* , unsigned char* ,int);
         unsigned char* _LaunchPerformDNAOperation(unsigned char* , unsigned char* , unsigned char* ,int);
         unsigned char* _LaunchDNADecoding(unsigned char * ,unsigned char * ,  int);
@@ -75,7 +72,7 @@ class encryptionEngine{
 
         unsigned char* _encrypt(unsigned char* , int size);
     public:
-        encryptionEngine(const imageData& ,const chenInitialArguments& ,const lorenzInitialArguments&);
+        encryptionEngine(const imageData& ,const chenInitialArguments& ,const lorenzInitialArguments& , const std::string&);
         ~encryptionEngine();
 
         bool pushImageIntoQueueBuffer(const unsigned char*);
