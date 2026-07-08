@@ -106,7 +106,6 @@ namespace KeyVault {
     }
 }
 
-
 namespace ComputePipeline {
 
     std::vector<std::string> _fetchImageTargets(const std::string& directory) {
@@ -117,6 +116,8 @@ namespace ComputePipeline {
                 filepaths.push_back(path);
             }
         }
+        // Ensure alphabetical processing so it aligns perfectly with Python
+        std::sort(filepaths.begin(), filepaths.end());
         return filepaths;
     }
 
@@ -130,18 +131,26 @@ namespace ComputePipeline {
 
     void executeEncryption(const SystemConfig& config, bool runDifferentialAsset = false) {
         std::vector<std::string> targets = _fetchImageTargets(config.inputDir);
-        if (targets.empty()) {
-            std::cerr << "[WARNING]: No .png or .jpg files found in '" << config.inputDir << "'\n";
-            return;
-        }
+        if (targets.empty()) return;
 
         std::cout << "[SYSTEM BOOT]: Igniting master encryptionEngine hardware...\n";
-        imageData streamFormat { nullptr, 640, 360, 3, 640 * 360 * 3 };
+        
+        int width = 0, height = 0, channels = 0;
+        unsigned char* probe = stbi_load(targets[0].c_str(), &width, &height, &channels, 3);
+        if(!probe) return;
+        stbi_image_free(probe); 
+        
+        imageData streamFormat;
+        streamFormat.imagePixelValues      = nullptr;
+        streamFormat.width                 = width;
+        streamFormat.height                = height;
+        streamFormat.channels              = 3;
+        streamFormat.sizeOfImageFileInByte = width * height * 3;
 
+        // SINGLE INSTANCE - Maximum Speed
         encryptionEngine masterEncrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys(), config.outputDir);
         std::thread computeWorker(&encryptionEngine::run, &masterEncrypt);
         
-        // Producer: Push frames to VRAM
         for (const auto& file : targets) {
             int w, h, c;
             unsigned char* h_frameBytes = stbi_load(file.c_str(), &w, &h, &c, 3);
@@ -152,17 +161,6 @@ namespace ComputePipeline {
         masterEncrypt.stop();
         if (computeWorker.joinable()) computeWorker.join();
         
-        // Benchmark Mode: Single-threaded injection of the differential asset
-        if (runDifferentialAsset) {
-            int w, h, c;
-            unsigned char* h_diffFrame = stbi_load("diff_plain.png", &w, &h, &c, 3);
-            if (h_diffFrame) {
-                masterEncrypt.pushImageIntoQueueBuffer(h_diffFrame);
-                masterEncrypt.run();
-                stbi_image_free(h_diffFrame);
-            }
-        }
-
         std::cout << " [SUCCESS]: Encryption Complete! Saved -> '" << config.outputDir << "/'\n";
     }
 
@@ -171,7 +169,18 @@ namespace ComputePipeline {
         if (targets.empty()) return;
 
         std::cout << "[SYSTEM BOOT]: Igniting master decryptionEngine hardware...\n";
-        imageData streamFormat { nullptr, 640, 360, 3, 640 * 360 * 3 };
+        
+        int width = 0, height = 0, channels = 0;
+        unsigned char* probe = stbi_load(targets[0].c_str(), &width, &height, &channels, 3);
+        if(!probe) return;
+        stbi_image_free(probe); 
+        
+        imageData streamFormat;
+        streamFormat.imagePixelValues      = nullptr;
+        streamFormat.width                 = width;
+        streamFormat.height                = height;
+        streamFormat.channels              = 3;
+        streamFormat.sizeOfImageFileInByte = width * height * 3;
 
         decryptionEngine masterDecrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys(), config.outputDir);
         std::thread computeWorker(&decryptionEngine::run, &masterDecrypt);
@@ -186,7 +195,6 @@ namespace ComputePipeline {
             }
         }
         
-        std::cout << "[PRODUCER]: Ingestion complete. Draining VRAM compute arena...\n";
         _blockUntilQueueDrained(masterDecrypt);
         masterDecrypt.stop();
         if (computeWorker.joinable()) computeWorker.join();
@@ -203,10 +211,7 @@ int main(int argc, char* argv[]) {
 
     if (config.mode == "encrypt") {
         ComputePipeline::executeEncryption(config, false);
-    } 
-    else if (config.mode == "benchmark") {
-        ComputePipeline::executeEncryption(config, true);
-    } 
+    }  
     else if (config.mode == "decrypt") {
         ComputePipeline::executeDecryption(config);
     }

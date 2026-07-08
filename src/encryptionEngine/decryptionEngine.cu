@@ -13,6 +13,8 @@
 #include"../chaoticStreamProcessing/lorenzStreamProcessor.h"
 
 #include<thread>
+#include <cerrno>
+#include <cstring>
 
 #include "../kernelCode/kernelsDecrypt.cuh"
 #include "../kernelCode/kernelsEncrypt.cuh"
@@ -151,16 +153,22 @@ decryptionEngine::decryptionEngine(
     cudaMalloc((void**)&d_chaoticMask, size);
     cudaMemset(d_chaoticMask, 0x00, size);
 
-    unsigned char* diffMask = _launchBiDirectionalARXDiffusion(d_chaoticMask, m_chenChaoticStreamRaw, m_inputImageDataLayout.width, m_inputImageDataLayout.height);
+    unsigned char* diffMask = _launchBiDirectionalARXDiffusion(
+                                    d_chaoticMask
+                                    , m_chenChaoticStreamRaw
+                                    , m_inputImageDataLayout.width * m_inputImageDataLayout.channels
+                                    , m_inputImageDataLayout.height);
+                                    
     unsigned char* dnaMask  = _LaunchDNAEncoding(diffMask, m_lorenzChaoticStreamRaw, d_scratch_B, size);
 
     _LaunchPerformDNAOperation(dnaMask, m_chenChaoticStreamRaw, d_chaoticMask, size);
 }
 decryptionEngine::~decryptionEngine() {
-    if (d_scratch_A) { 
-        cudaFree(d_scratch_A); cudaFree(d_scratch_B); 
-        cudaFree(d_scratch_C); cudaFree(d_scratch_D); 
-    }
+    if(d_scratch_A) cudaFree(d_scratch_A);
+    if(d_scratch_B) cudaFree(d_scratch_B);
+    if(d_scratch_C) cudaFree(d_scratch_C);
+    if(d_scratch_D) cudaFree(d_scratch_D);
+
     if (d_permutationMapping)               cudaFree(d_permutationMapping);
     if (d_chaoticMask)                      cudaFree(d_chaoticMask);
     if (m_chenChaoticStreamRaw)             cudaFree(m_chenChaoticStreamRaw);
@@ -175,44 +183,55 @@ bool decryptionEngine::pushIntoTheQueue(imageData& inputImage){
 void decryptionEngine::run() {
     int frame_count = 0;
     while(isRunning) {
-        if(m_decryptionQueue.empty()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            continue;
-        }
-        
-        unsigned char* cipherPixels{nullptr};
-        int streamByteSize{0};
+        unsigned char* cipherPixels = nullptr;
+        int streamByteSize = 0;
 
-        { // CREATE A SCOPE BLOCK FOR THE MUTEX
+        { 
             std::lock_guard<std::mutex> lock(m_queueMutex);
-            
             if(m_decryptionQueue.empty()) {
-                // If empty, the lock_guard is automatically released here
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 continue;
             }
-            
-            // Extract data and safely pop INSIDE the lock
             cipherPixels = m_decryptionQueue.front().imagePixelValues;
             streamByteSize = m_decryptionQueue.front().sizeOfImageFileInByte;
-            m_decryptionQueue.pop();
+            m_decryptionQueue.pop(); 
         }
-        unsigned char* plainText = _decrypt(cipherPixels, streamByteSize);
 
-        if(!fs::exists(m_outputDir)) fs::create_directory(m_outputDir);
-
-        std::string out_path = m_outputDir + "/frames_" + std::to_string(frame_count++) + ".png";
+        std::cout << "  [GPU-WORKER]: Decrypting frame " << frame_count << "...\n";
         
-        stbi_write_png(out_path.c_str(), 
-                       m_inputImageDataLayout.width, 
-                       m_inputImageDataLayout.height, 
-                       m_inputImageDataLayout.channels, 
-                       plainText, 
-                       m_inputImageDataLayout.width * m_inputImageDataLayout.channels);
+        unsigned char* plainText = _decrypt(cipherPixels, streamByteSize);
+        
+        if (!fs::exists(m_outputDir)) {
+            std::error_code ec;
+            fs::create_directories(m_outputDir, ec);
+        }
+
+        std::string out_path = m_outputDir + "/decrypted_frame_" + std::to_string(frame_count) + ".png";
+        
+        FILE* test_file = fopen(out_path.c_str(), "wb");
+        if (!test_file) {
+            std::cerr << "  [FATAL ERROR]: OS blocked file creation at '" << out_path << "'\n";
+            std::cerr << "  [OS REASON]: " << std::strerror(errno) << "\n";
+        } else {
+            fclose(test_file);
+            int res = stbi_write_png(
+                out_path.c_str()
+                , m_inputImageDataLayout.width
+                , m_inputImageDataLayout.height
+                , m_inputImageDataLayout.channels
+                , plainText
+                , 0);
+            
+            if(res != 0) std::cout << "  [DISK]: Successfully saved -> " << out_path << "\n";
+            else std::cerr << "  [FATAL ERROR]: stbi_write_png failed internally!\n";
+        }
 
         delete[] plainText;
+        stbi_image_free(cipherPixels);
+        frame_count++;
     }    
 }
+
 void decryptionEngine::stop(){
     isRunning = false;
 }

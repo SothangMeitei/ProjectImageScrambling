@@ -10,14 +10,13 @@
 #include"../chaoticStreamProcessing/lorenzStreamProcessor.h"
 
 #include<thread>
+#include <cerrno>
+#include <cstring>
 
 #include <cuda_runtime.h>
 #include "../kernelCode/kernelsEncrypt.cuh"
 
 namespace fs = std::filesystem;
-static int g_streamWidth    = 640;
-static int g_streamHeight   = 360;
-static int g_streamChannels = 3;
 
 //chaotic stream generation and then host to device transfer of data of the chaotic stream
 
@@ -105,10 +104,11 @@ encryptionEngine::encryptionEngine(
 }
 
 encryptionEngine::~encryptionEngine() {
-    if (d_scratchA) { 
-        cudaFree(d_scratchA); cudaFree(d_scratchB); 
-        cudaFree(d_scratchC); cudaFree(d_scratchD); 
-    }
+    if(d_scratchA) cudaFree(d_scratchA);
+    if(d_scratchB) cudaFree(d_scratchB);
+    if(d_scratchC) cudaFree(d_scratchC);
+    if(d_scratchD) cudaFree(d_scratchD);
+
     if (d_permMap)              cudaFree(d_permMap);
     if (m_chaoticStreamChen)    cudaFree(m_chaoticStreamChen);
     if (m_chaoticStreamLorenz)  cudaFree(m_chaoticStreamLorenz);
@@ -116,10 +116,11 @@ encryptionEngine::~encryptionEngine() {
 
 void encryptionEngine::_reallocateVRAMScratchpadIfNeeded(size_t required_size) {
     if (required_size > m_currentArenaPixelSize) {
-        if(d_scratchA) { 
-            cudaFree(d_scratchA); cudaFree(d_scratchB); 
-            cudaFree(d_scratchC); cudaFree(d_scratchD); 
-        }
+        if(d_scratchA) cudaFree(d_scratchA);
+        if(d_scratchB) cudaFree(d_scratchB);
+        if(d_scratchC) cudaFree(d_scratchC);
+        if(d_scratchD) cudaFree(d_scratchD);
+        
         cudaMalloc((void**)&d_scratchA, required_size);
         cudaMalloc((void**)&d_scratchB, required_size);
         cudaMalloc((void**)&d_scratchC, required_size);
@@ -249,36 +250,49 @@ void encryptionEngine::stop() {
 void encryptionEngine::run() {
     int frame_count = 0;
     while(isRunning) {
-        if(m_inputImageQueueBuffer.empty()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2)); // Prevents 100% CPU core spin
-            continue;
-        }
-        unsigned char* rawPixels{nullptr};
-        int streamByteSize{0};
+        unsigned char* rawPixels = nullptr;
+        int streamByteSize = 0;
 
-
-        { // CREATE A SCOPE BLOCK FOR THE MUTEX
+        { 
             std::lock_guard<std::mutex> lock(m_queueMutex);
-            
             if(m_inputImageQueueBuffer.empty()) {
-                // If empty, the lock_guard is automatically released here
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 continue;
             }
-            
-            // Extract data and safely pop INSIDE the lock
             rawPixels = m_inputImageQueueBuffer.front().imagePixelValues;
             streamByteSize = m_inputImageQueueBuffer.front().sizeOfImageFileInByte;
             m_inputImageQueueBuffer.pop(); 
-            
         }
 
+        std::cout << "  [GPU-WORKER]: Encrypting frame " << frame_count << " (" << m_referenceFormat.width << "x" << m_referenceFormat.height << ")...\n";
+        
         unsigned char* cipherText = _encrypt(rawPixels, streamByteSize);
-        if (!fs::exists(m_outputDir)) fs::create_directory(m_outputDir);
+        
+        // 1. Safely recursively build the output directory
+        if (!fs::exists(m_outputDir)) {
+            std::error_code ec;
+            fs::create_directories(m_outputDir, ec);
+        }
 
-        std::string out_path = m_outputDir + "/encrypted_frame_" + std::to_string(frame_count++) + ".png";
-        stbi_write_png(out_path.c_str(), g_streamWidth, g_streamHeight, g_streamChannels, cipherText, g_streamWidth * g_streamChannels);
+        std::string out_path = m_outputDir + "/encrypted_frame_" + std::to_string(frame_count) + ".png";
+        
+        // 2. DIAGNOSTIC DISK WRITE CHECK
+        FILE* test_file = fopen(out_path.c_str(), "wb");
+        if (!test_file) {
+            std::cerr << "  [FATAL ERROR]: OS blocked file creation at '" << out_path << "'\n";
+            std::cerr << "  [OS REASON]: " << std::strerror(errno) << "\n";
+        } else {
+            fclose(test_file); // Close the test handle
+            
+            // Pass stride as 0 to let STB calculate the memory alignment safely
+            int res = stbi_write_png(out_path.c_str(), m_referenceFormat.width, m_referenceFormat.height, m_referenceFormat.channels, cipherText, 0);
+            
+            if(res != 0) std::cout << "  [DISK]: Successfully saved -> " << out_path << "\n";
+            else std::cerr << "  [FATAL ERROR]: stbi_write_png failed internally!\n";
+        }
 
         delete[] cipherText;
+        stbi_image_free(rawPixels);
+        frame_count++;
     }    
 }
