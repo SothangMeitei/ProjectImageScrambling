@@ -6,7 +6,7 @@ class CorrelationAnalyzer:
     """Handles Spatial Correlation Analysis and Data Visualization."""
     
     @staticmethod
-    def calculate(image: np.ndarray, direction: str = "horizontal", samples: int = 3000) -> float:
+    def calculate(image: np.ndarray, direction: str = "horizontal", samples: int = 5000) -> float:
         # Convert to 2D grayscale if a 3D color image is passed
         if len(image.shape) == 3:
             image = image[:, :, 0] 
@@ -41,12 +41,46 @@ class CorrelationAnalyzer:
         h, w = plain.shape
         x, y = np.random.randint(0, w - 1, samples), np.random.randint(0, h - 1, samples)
 
+        #==========================================================================================================
+        #==========================================================================================================
+        #==========================================================================================================
+
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
         ax1.scatter(plain[y, x], plain[y, x + 1], s=1, c='blue', alpha=0.5)
         ax1.set_title("Plaintext: Horizontal Correlation")
         
         ax2.scatter(cipher[y, x], cipher[y, x + 1], s=1, c='red', alpha=0.5)
         ax2.set_title("Ciphertext: Horizontal Correlation")
+        
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        #==========================================================================================================
+        #==========================================================================================================
+        #==========================================================================================================
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+        ax1.scatter(plain[y, x], plain[y + 1, x], s=1, c='blue', alpha=0.5)
+        ax1.set_title("Plaintext: vertical Correlation")
+        
+        ax2.scatter(cipher[y, x], cipher[y + 1, x], s=1, c='red', alpha=0.5)
+        ax2.set_title("Ciphertext: vertical Correlation")
+        
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        #==========================================================================================================
+        #==========================================================================================================
+        #==========================================================================================================
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+        ax1.scatter(plain[y, x], plain[y + 1, x + 1], s=1, c='blue', alpha=0.5)
+        ax1.set_title("Plaintext: diagonal Correlation")
+        
+        ax2.scatter(cipher[y, x], cipher[y + 1, x + 1], s=1, c='red', alpha=0.5)
+        ax2.set_title("Ciphertext: diagonal Correlation")
         
         plt.tight_layout()
         plt.savefig(output_path)

@@ -20,10 +20,10 @@ nvcc -std=c++17 -O3 -Xcompiler /Zc:preprocessor -DCCCL_IGNORE_MSVC_TRADITIONAL_P
 
 catalog for all the analysis techniques and why they are used in this manner for the encryption techinques
 
-spatial analysis
-correlation analysis
-entropy global and local entropy analysis
-differential analysis(testing of the avalance effect)
-key space and key sensitivity(Tested using the NIIST testing suite)
-choosen plain text attack
-cropping and noise introduction attack analysis
+spatial analysis                                                                done 
+correlation analysis                                                            done
+entropy global and local entropy analysis                                       done
+differential analysis(testing of the avalance effect)                           done
+key space and key sensitivity(Tested using the NIIST testing suite)             not done(this but will be some API call)
+choosen plain text attack                                                       not done(this but calling the things that I have done before in the project)
+cropping and noise introduction attack analysis                                 done

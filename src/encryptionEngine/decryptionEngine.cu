@@ -158,7 +158,7 @@ decryptionEngine::decryptionEngine(
                                     , m_chenChaoticStreamRaw
                                     , m_inputImageDataLayout.width * m_inputImageDataLayout.channels
                                     , m_inputImageDataLayout.height);
-                                    
+
     unsigned char* dnaMask  = _LaunchDNAEncoding(diffMask, m_lorenzChaoticStreamRaw, d_scratch_B, size);
 
     _LaunchPerformDNAOperation(dnaMask, m_chenChaoticStreamRaw, d_chaoticMask, size);

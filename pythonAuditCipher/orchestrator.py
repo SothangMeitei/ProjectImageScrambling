@@ -32,7 +32,7 @@ class CipherAuditSuite:
         print(f"NPCR : {npcr:.4f}%")
         print(f"UACI : {uaci:.4f}%")
 
-    def run_correlation_audit(self, plot_out: str = "outputs/correlation.png"):
+    def run_correlation_audit(self, plot_out: str = "outputs/correlation"):
         for d in ["horizontal", "vertical", "diagonal"]:
             p_corr = CorrelationAnalyzer.calculate(self.plain, d)
             c_corr = CorrelationAnalyzer.calculate(self.cipher, d)
@@ -55,3 +55,13 @@ class CipherAuditSuite:
         
         print(f"Crop Attack  | PSNR: {psnr_c:5.2f} dB | SSIM: {ssim_c:.4f}")
         print(f"Noise Attack | PSNR: {psnr_n:5.2f} dB | SSIM: {ssim_n:.4f}")
+
+    def run_entropy_audit(self, plot_out: str = "outputs/histogram.png"):
+        g_ent = EntropyAnalyzer.calculate_global(self.cipher)
+        l_ent = EntropyAnalyzer.calculate_local(self.cipher)
+        print(f"Global Entropy : {g_ent:.5f} / 8.0")
+        print(f"Local Entropy  : {l_ent:.5f}")
+        
+        # NEW: Output the histogram
+        EntropyAnalyzer.plot_histograms(self.plain, self.cipher, plot_out)
+        print(f"[+] Histogram saved to {plot_out}")
