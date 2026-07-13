@@ -105,8 +105,10 @@ def main():
 
     for idx, plain_path in enumerate(plain_files):
         filename = os.path.basename(plain_path)
-        cipher_path = os.path.join(DIRS['cipher'], f"encrypted_{filename}")
-        diff_cipher_path = os.path.join(DIRS['diff_cipher'], f"encrypted_{filename}")
+        
+        # FIX 1: Remove "encrypted_" prefix to match what C++ actually saved!
+        cipher_path = os.path.join(DIRS['cipher'], filename)
+        diff_cipher_path = os.path.join(DIRS['diff_cipher'], filename)
         
         if not os.path.exists(cipher_path): continue
 
@@ -126,6 +128,11 @@ def main():
         RobustnessAnalyzer.stage_advanced_cropping(suite.cipher, active_crop_config, crop_target)
         RobustnessAnalyzer.stage_noise_attack(suite.cipher, noise_target, density=0.05)
 
+        # FIX 2: Copy the pristine 'aux_' files into the attacks folder so C++ can use them to recover!
+        import shutil
+        aux_src = os.path.join(DIRS['cipher'], f"aux_{filename}")
+        shutil.copy2(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_crop_{filename}"))
+        shutil.copy2(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_noise_{filename}"))
 
     # 5. RUN ROBUSTNESS DECRYPTION
     write_cpp_config("decrypt", DIRS['attacks_staged'], DIRS['attacks_recovered'])
@@ -146,7 +153,9 @@ def main():
         filename = os.path.basename(plain_path)
         rec_crop = os.path.join(DIRS['attacks_recovered'], f"decrypted_crop_{filename}")
         rec_noise = os.path.join(DIRS['attacks_recovered'], f"decrypted_noise_{filename}")
-        cipher_path = os.path.join(DIRS['cipher'], f"encrypted_{filename}")
+        
+        # FIX 1 (Continued): Remove "encrypted_" prefix
+        cipher_path = os.path.join(DIRS['cipher'], filename)
         
         if os.path.exists(rec_crop) and os.path.exists(rec_noise):
             suite = CipherAuditSuite(plain_path, cipher_path) 

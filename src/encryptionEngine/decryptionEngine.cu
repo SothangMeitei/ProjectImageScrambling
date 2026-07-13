@@ -84,62 +84,14 @@ void decryptionEngine::_allocateDeviceScratchPadData(size_t sizeOfScratchPad){
     }
 }
 
-
-
-
-//================================================================================================================================================
-
-
-unsigned char* _launchBiDirectionalARXDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
-    int threadsPerBlock = 256;
-
-    // 1. Calculate grid for Columns
-    int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
-    _diffuseColumnTopToBottomKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    _diffuseColumnBottomToTopKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    // 2. Calculate grid for Rows
-    int blocksRow = (height + threadsPerBlock - 1) / threadsPerBlock;
-    _diffuseRowLeftToRightKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    _diffuseRowRightToLeftKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    return d_data;
-}
-
-unsigned char* _LaunchDNAEncoding(
-    unsigned char* input, unsigned char* keyStream, unsigned char* output, int size) {
-    int blockSize = 256;
-    int gridSize = (size + blockSize - 1) / blockSize;
-    _DNAEncodingKernel<<<gridSize, blockSize>>>(input, keyStream, output, size);
-    return output;
-}
-
-unsigned char* _LaunchPerformDNAOperation(
-    unsigned char* input, unsigned char* keyStream, unsigned char* output, int size) {
-    int blockSize = 256;
-    int gridSize = (size + blockSize - 1) / blockSize;
-    _performDNAOperationKernel<<<gridSize, blockSize>>>(input, keyStream, output, size);
-    return output;
-}
-
-//=========================================================================================================================
-
 decryptionEngine::decryptionEngine(
     const imageData& inputImageDataLayout
     , const chenInitialArguments& inputChenArguments
-    , const lorenzInitialArguments& inputLorenzArguments
-    , const std::string& outputDir)
+    , const lorenzInitialArguments& inputLorenzArguments)
 
     : m_inputImageDataLayout{inputImageDataLayout}
     , m_chenInitialArguments{inputChenArguments}
     , m_lorenzInitialArguments{inputLorenzArguments}
-    , m_outputDir{outputDir}
 {
     d_permutationMapping = nullptr; d_scratch_A = nullptr; d_scratch_B = nullptr;
     d_scratch_C = nullptr; d_scratch_D = nullptr; d_chaoticMask = nullptr;
@@ -152,16 +104,6 @@ decryptionEngine::decryptionEngine(
 
     cudaMalloc((void**)&d_chaoticMask, size);
     cudaMemset(d_chaoticMask, 0x00, size);
-
-    unsigned char* diffMask = _launchBiDirectionalARXDiffusion(
-                                    d_chaoticMask
-                                    , m_chenChaoticStreamRaw
-                                    , m_inputImageDataLayout.width * m_inputImageDataLayout.channels
-                                    , m_inputImageDataLayout.height);
-
-    unsigned char* dnaMask  = _LaunchDNAEncoding(diffMask, m_lorenzChaoticStreamRaw, d_scratch_B, size);
-
-    _LaunchPerformDNAOperation(dnaMask, m_chenChaoticStreamRaw, d_chaoticMask, size);
 }
 decryptionEngine::~decryptionEngine() {
     if(d_scratch_A) cudaFree(d_scratch_A);
@@ -174,74 +116,17 @@ decryptionEngine::~decryptionEngine() {
     if (m_chenChaoticStreamRaw)             cudaFree(m_chenChaoticStreamRaw);
     if (m_lorenzChaoticStreamRaw)           cudaFree(m_lorenzChaoticStreamRaw);
 }
-//this will return false on failur
-bool decryptionEngine::pushIntoTheQueue(imageData& inputImage){
-    std::lock_guard<std::mutex> lock(m_queueMutex);
-    m_decryptionQueue.push(inputImage);
-    return true;
+
+unsigned char* decryptionEngine::_reverseBitReplacement(unsigned char* input1 , unsigned char* input2 , unsigned char* output , int size){
+    //take the two bytes of the inputs
+    //and then when merging we take the input1's as the first bit and the input2 and the second bit
+    //and then for first bit second bit = 10 -> 1 or 01 -> 0
+    long long blockSize = 256;
+    int gridSize = (size + blockSize - 1) / blockSize;
+
+    _reverseBitReplacementKernel<<<gridSize , blockSize>>>(input1 , input2 , output , size);
+    return output;
 }
-void decryptionEngine::run() {
-    int frame_count = 0;
-    while(isRunning) {
-        unsigned char* cipherPixels = nullptr;
-        int streamByteSize = 0;
-
-        { 
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            if(m_decryptionQueue.empty()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                continue;
-            }
-            cipherPixels = m_decryptionQueue.front().imagePixelValues;
-            streamByteSize = m_decryptionQueue.front().sizeOfImageFileInByte;
-            m_decryptionQueue.pop(); 
-        }
-
-        std::cout << "  [GPU-WORKER]: Decrypting frame " << frame_count << "...\n";
-        
-        unsigned char* plainText = _decrypt(cipherPixels, streamByteSize);
-        
-        if (!fs::exists(m_outputDir)) {
-            std::error_code ec;
-            fs::create_directories(m_outputDir, ec);
-        }
-
-        std::string out_path = m_outputDir + "/decrypted_frame_" + std::to_string(frame_count) + ".png";
-        
-        FILE* test_file = fopen(out_path.c_str(), "wb");
-        if (!test_file) {
-            std::cerr << "  [FATAL ERROR]: OS blocked file creation at '" << out_path << "'\n";
-            std::cerr << "  [OS REASON]: " << std::strerror(errno) << "\n";
-        } else {
-            fclose(test_file);
-            int res = stbi_write_png(
-                out_path.c_str()
-                , m_inputImageDataLayout.width
-                , m_inputImageDataLayout.height
-                , m_inputImageDataLayout.channels
-                , plainText
-                , 0);
-            
-            if(res != 0) std::cout << "  [DISK]: Successfully saved -> " << out_path << "\n";
-            else std::cerr << "  [FATAL ERROR]: stbi_write_png failed internally!\n";
-        }
-
-        delete[] plainText;
-        stbi_image_free(cipherPixels);
-        frame_count++;
-    }    
-}
-
-void decryptionEngine::stop(){
-    isRunning = false;
-}
-void decryptionEngine::pause(){
-    isPaused = true;
-}
-void decryptionEngine::resume(){
-    isPaused = false;
-}
-
 unsigned char* decryptionEngine::_reversePermute(unsigned char* input,int* permutationMap,unsigned char* output , int size){
     int blockSize{256};
     int gridSize = (size + blockSize - 1) / blockSize;
@@ -250,31 +135,12 @@ unsigned char* decryptionEngine::_reversePermute(unsigned char* input,int* permu
     return output;
 }
 
-unsigned char* decryptionEngine::_reverseDiffuse(unsigned char* input, unsigned char* diffusionKey , unsigned char* output , int size){
-    int blockSize{256};
-    int gridSize = (size + blockSize - 1) / blockSize;
-
-    _reverseDiffusionKernel<<<gridSize , blockSize>>>(input , diffusionKey , output , size);
-    return output;
-}
-
-unsigned char* decryptionEngine::_launchBiDirectionalARXInverseDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
+unsigned char* decryptionEngine::_reverseDiffuse(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
     int threadsPerBlock = 256;
 
-    // 1. Calculate grid for Rows (Executed FIRST during Decryption)
-    int blocksRow = (height + threadsPerBlock - 1) / threadsPerBlock;
-    _inverseRowRightToLeftKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    _inverseRowLeftToRightKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    // 2. Calculate grid for Columns (Executed LAST during Decryption)
+    // CORRECTED: Calculate grid for Columns, not Rows!
     int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
-    _inverseColumnBottomToTopKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    _inverseColumnTopToBottomKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    _reverseDiffusionKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
     cudaDeviceSynchronize();
 
     return d_data;
@@ -288,43 +154,76 @@ unsigned char* decryptionEngine::_reverseDNAEncoding(unsigned char* input, unsig
     return output;
 }
 
-unsigned char* decryptionEngine::_reverseDNAOperation(unsigned char* input , unsigned char* chaoticStream , unsigned char* output , int size){
+unsigned char* decryptionEngine::_reverseImageZipping(unsigned char* cipherText , unsigned char* cipherText1 , unsigned char* output, int size){
     int blockSize{256};
     int gridSize = (size + blockSize - 1) / blockSize;
 
-    _reverseDNAOperationKernel<<<gridSize , blockSize>>>(input , chaoticStream , output , size);
-    return output;
-}
-unsigned char* decryptionEngine::_reverseImageZipping(unsigned char* cipherText , unsigned char* branchChaoticPart , unsigned char* output, int size){
-    int blockSize{256};
-    int gridSize = (size + blockSize - 1) / blockSize;
-
-    _reverseImageZippingKernel<<<gridSize , blockSize>>>(cipherText , branchChaoticPart , output , size);
+    _reverseDNAImageMergingKernel<<<gridSize , blockSize>>>(cipherText , cipherText1 , output , size);
     return output;
 }
 
-unsigned char* decryptionEngine::_decrypt(unsigned char* cipherTextImage, int size) {
+unsigned char* decryptionEngine::decrypt(unsigned char* cipherTextImage, unsigned char* cipherTextImage1, int size) {
     
-    // 1. Load the incoming ciphertext frame into VRAM
+    // --- THE TRIPWIRE ---
+    auto check_cuda = [](const std::string& step) {
+        cudaError_t err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            std::cerr << "\n======================================================\n";
+            std::cerr << "[GPU CRASH CAUGHT EXACTLY AT]: " << step << "\n";
+            std::cerr << "Error Desc: " << cudaGetErrorString(err) << "\n";
+            std::cerr << "======================================================\n";
+            exit(1);
+        }
+    };
+
+    // 1. Load the incoming ciphertexts into VRAM
+    // Main -> B  |  Aux -> D
     cudaMemcpy(d_scratch_B, cipherTextImage, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_scratch_D, cipherTextImage1, size, cudaMemcpyHostToDevice);
+    check_cuda("Initial Memcpy Host->Device");
 
-    unsigned char* payload = _reverseImageZipping(d_scratch_B, d_chaoticMask, d_scratch_A, size);
-    // Stage 6 Inverse: DNA Decoding this does nothing for now
+    // 2. REVERSE IMAGE ZIPPING (DNA Subtraction)
+    // Output: Unzipped MSB payload goes to A. (D still holds the aux LSB payload).
+    unsigned char* payloadMSB = _reverseImageZipping(d_scratch_B, d_scratch_D, d_scratch_A, size);
+    check_cuda("Reverse Image Zipping Kernel");
 
-    unsigned char* subDNA = _reverseDNAOperation(payload, m_lorenzChaoticStreamRaw, d_scratch_B, size);
+    // 3. REVERSE DNA ENCODING
+    // Input: A -> Output: B  |  Input: D -> Output: C
+    unsigned char* decDNA_MSB = _reverseDNAEncoding(payloadMSB, m_chenChaoticStreamRaw, d_scratch_B, size);
+    check_cuda("Reverse DNA Encoding Kernel (MSB)");
 
-    unsigned char* decDNA = _reverseDNAEncoding(subDNA, m_chenChaoticStreamRaw, d_scratch_A, size);
+    unsigned char* decDNA_LSB = _reverseDNAEncoding(d_scratch_D, m_lorenzChaoticStreamRaw, d_scratch_C, size);
+    check_cuda("Reverse DNA Encoding Kernel (LSB)");
 
-    unsigned char* unDiffuse = _launchBiDirectionalARXInverseDiffusion(
-        decDNA
-        , m_lorenzChaoticStreamRaw
-        , m_inputImageDataLayout.width * m_inputImageDataLayout.channels
-        , m_inputImageDataLayout.height);
+    // 4. REVERSE DIFFUSION (In-Place)
+    // Input/Output: B  |  Input/Output: C
+    int w_ch = m_inputImageDataLayout.width * m_inputImageDataLayout.channels;
+    int h = m_inputImageDataLayout.height;
+    
+    unsigned char* unDiffuseMSB = _reverseDiffuse(decDNA_MSB, m_lorenzChaoticStreamRaw, w_ch, h);
+    check_cuda("Reverse Diffusion Kernel (MSB)");
 
-    unsigned char* unPermute = _reversePermute(unDiffuse, d_permutationMapping, d_scratch_B, size);
+    unsigned char* unDiffuseLSB = _reverseDiffuse(decDNA_LSB, m_chenChaoticStreamRaw, w_ch, h);
+    check_cuda("Reverse Diffusion Kernel (LSB)");
 
-    unsigned char* h_decrypted_output = new unsigned char[size];
-    cudaMemcpy(h_decrypted_output, unPermute, size, cudaMemcpyDeviceToHost);
+    // 5. REVERSE PERMUTATION
+    // Input: B -> Output: A  |  Input: C -> Output: D
+    unsigned char* unPermuteMSB = _reversePermute(unDiffuseMSB, d_permutationMapping, d_scratch_A, size);
+    check_cuda("Reverse Permute Kernel (MSB)");
 
-    return h_decrypted_output;
+    unsigned char* unPermuteLSB = _reversePermute(unDiffuseLSB, d_permutationMapping, d_scratch_D, size);
+    check_cuda("Reverse Permute Kernel (LSB)");
+
+    // 6. REVERSE BIT REPLACEMENT (Combine the 2 halves)
+    // Input: A + D -> Output: B (The final un-split plaintext!)
+    unsigned char* reversed_bit_replacement_output = _reverseBitReplacement(unPermuteMSB, unPermuteLSB, d_scratch_B, size);
+    check_cuda("Reverse Bit Replacement Kernel");
+
+    // ====================================================================
+    // EXPORT TO CPU
+    // ====================================================================
+    unsigned char* h_plain_text = new unsigned char[size];
+    cudaMemcpy(h_plain_text, reversed_bit_replacement_output, size, cudaMemcpyDeviceToHost);
+    
+    return h_plain_text;
 }

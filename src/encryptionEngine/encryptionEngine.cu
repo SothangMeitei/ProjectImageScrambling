@@ -79,26 +79,18 @@ unsigned char* encryptionEngine::lorenz4DHyperChaoticStream() {
 encryptionEngine::encryptionEngine(
       const imageData& imageFormat 
     , const chenInitialArguments& chenArguments
-    , const lorenzInitialArguments& lorenzArguments
-    , const std::string& outputDir)
+    , const lorenzInitialArguments& lorenzArguments)
     
     : m_chenArguments{chenArguments} 
     , m_lorenzArguments{lorenzArguments}
     , m_streamSize{imageFormat.sizeOfImageFileInByte}
-    , m_outputDir{outputDir}
 {
-    isRunning = true;
-    isPaused  = false;
     m_referenceFormat = imageFormat;
-
     d_scratchA = nullptr; d_scratchB = nullptr; 
     d_scratchC = nullptr; d_scratchD = nullptr;
     m_currentArenaPixelSize = 0;
 
     d_permMap             = nullptr;
-    m_chaoticStreamChen   = nullptr;
-    m_chaoticStreamLorenz = nullptr;
-
     m_chaoticStreamChen   = chen3DChaoticStream();
     m_chaoticStreamLorenz = lorenz4DHyperChaoticStream();
 }
@@ -136,36 +128,43 @@ std::pair<unsigned char*, unsigned char*> encryptionEngine::_LaunchBitReplace(
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize; 
     _bitReplaceKernel<<<gridSize, blockSize>>>(inputImage, output1, output2, size);
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "[KERNEL CRASH]: _LaunchBitReplace failed -> " << cudaGetErrorString(err) << "\n";
+    } else {
+        std::cout << "return from the bit replacement\n";
+    }
+
     return {output1, output2};
 }
 
-unsigned char* encryptionEngine::_LaunchPixelPermute(
-    unsigned char* inputImage, unsigned char* output, int* permutation, int size) {
+unsigned char* encryptionEngine::_LaunchPixelPermute(unsigned char* input, unsigned char* output, int* mapping, int size) {
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
-    _pixelPermuteKernel<<<gridSize, blockSize>>>(inputImage, output, permutation, size);
+    
+    _pixelPermuteKernel<<<gridSize, blockSize>>>(input, output, mapping, size);
+    
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "\n[KERNEL CRASH]: _LaunchPixelPermute failed -> " << cudaGetErrorString(err) << "\n";
+    } else {
+        std::cout << "return from the pixel permute\n";
+    }
+    
     return output;
 }
-
-unsigned char* encryptionEngine::_launchBiDirectionalARXDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
+unsigned char* encryptionEngine::_LaunchPixelDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
     int threadsPerBlock = 256;
 
     // 1. Calculate grid for Columns
     int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
-    _diffuseColumnTopToBottomKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    _diffuseColumnBottomToTopKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    // 2. Calculate grid for Rows
-    int blocksRow = (height + threadsPerBlock - 1) / threadsPerBlock;
-    _diffuseRowLeftToRightKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
-    _diffuseRowRightToLeftKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-
+    _diffuseColumnTopToBottomKernel_Encrypt<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "[KERNEL CRASH]: _LaunchPixelDiffusion failed -> " << cudaGetErrorString(err) << "\n";
+    } else {
+        std::cout << "return from the diffusion function\n";
+    }
     return d_data;
 }
 
@@ -174,22 +173,12 @@ unsigned char* encryptionEngine::_LaunchDNAEncoding(
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
     _DNAEncodingKernel<<<gridSize, blockSize>>>(input, keyStream, output, size);
-    return output;
-}
-
-unsigned char* encryptionEngine::_LaunchPerformDNAOperation(
-    unsigned char* input, unsigned char* keyStream, unsigned char* output, int size) {
-    int blockSize = 256;
-    int gridSize = (size + blockSize - 1) / blockSize;
-    _performDNAOperationKernel<<<gridSize, blockSize>>>(input, keyStream, output, size);
-    return output;
-}
-
-unsigned char* encryptionEngine::_LaunchDNADecoding(
-    unsigned char* input, unsigned char* output, int size) {
-    int blockSize = 256;
-    int gridSize = (size + blockSize - 1) / blockSize;
-    _performDNADecodingKernel<<<gridSize, blockSize>>>(input, output, size);
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "[KERNEL CRASH]: _LaunchDNAEncoding failed -> " << cudaGetErrorString(err) << "\n";
+    } else {
+        std::cout << "return from the dna encoding function\n";
+    }
     return output;
 }
 
@@ -198,101 +187,78 @@ unsigned char* encryptionEngine::_LauchImageMerginZip(
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
     _mergeTwoHalvesKernel<<<gridSize, blockSize>>>(input1, input2, output, size);
+    cudaError_t err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        std::cerr << "[KERNEL CRASH]: _LauchImageMerginZip failed -> " << cudaGetErrorString(err) << "\n";
+    } else {
+        std::cout << "return from the merge function\n";
+    }
     return output;
 }
 
-
-
-unsigned char* encryptionEngine::_encrypt(unsigned char* plainTextInputImage, int size) {
+std::pair<unsigned char*, unsigned char*> encryptionEngine::encrypt(unsigned char* plainTextInputImage, int size) {
     
+    // --- THE TRIPWIRE ---
+    auto check_cuda = [](const std::string& step) {
+        cudaError_t err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            std::cerr << "\n======================================================\n";
+            std::cerr << "[GPU CRASH CAUGHT EXACTLY AT]: " << step << "\n";
+            std::cerr << "Error Desc: " << cudaGetErrorString(err) << "\n";
+            std::cerr << "======================================================\n";
+            exit(1);
+        }
+    };
+
     _reallocateVRAMScratchpadIfNeeded(size);
     cudaMemcpy(d_scratchB, plainTextInputImage, size, cudaMemcpyHostToDevice);
+    check_cuda("Initial Memcpy Host->Device");
 
-    std::pair<unsigned char*, unsigned char*> split = 
-        _LaunchBitReplace(d_scratchB, d_scratchA, d_scratchC, size);
+    // 1. RUN BIT REPLACEMENT (Split Image)
+    // Input: B  |  Output MSB -> A  |  Output LSB -> C
+    std::pair<unsigned char*, unsigned char*> split = _LaunchBitReplace(d_scratchB, d_scratchA, d_scratchC, size);
+    check_cuda("Bit Replacement Kernel");
 
+    // 2. RUN PIXEL PERMUTE
+    // Input: A -> Output: B  |  Input: C -> Output: D
     unsigned char* permMSB = _LaunchPixelPermute(split.first,  d_scratchB, d_permMap, size);
-    unsigned char* permLSB = _LaunchPixelPermute(split.second, d_scratchD, d_permMap, size);    //this too is useless ,as all 0's
+    check_cuda("Pixel Permute Kernel (MSB)");
 
-    unsigned char* diffMSB = _launchBiDirectionalARXDiffusion(permMSB , m_chaoticStreamLorenz ,m_referenceFormat.width * m_referenceFormat.channels, m_referenceFormat.height);
-    unsigned char* diffLSB = _launchBiDirectionalARXDiffusion(permLSB , m_chaoticStreamChen   ,m_referenceFormat.width * m_referenceFormat.channels, m_referenceFormat.height);
+    unsigned char* permLSB = _LaunchPixelPermute(split.second, d_scratchD, d_permMap, size);
+    check_cuda("Pixel Permute Kernel (LSB)");
 
-    unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen,   d_scratchA, size);
+    // 3. RUN PIXEL DIFFUSION (In-Place)
+    // Input/Output: B  |  Input/Output: D
+    int w_ch = m_referenceFormat.width * m_referenceFormat.channels;
+    int h = m_referenceFormat.height;
+    
+    unsigned char* diffMSB = _LaunchPixelDiffusion(permMSB, m_chaoticStreamLorenz, w_ch, h);
+    check_cuda("Pixel Diffusion Kernel (MSB)");
+
+    unsigned char* diffLSB = _LaunchPixelDiffusion(permLSB, m_chaoticStreamChen, w_ch, h);
+    check_cuda("Pixel Diffusion Kernel (LSB)");
+
+    // 4. RUN DNA ENCODING
+    // Input: B -> Output: A  |  Input: D -> Output: C
+    unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen, d_scratchA, size);
+    check_cuda("DNA Encoding Kernel (MSB)");
+
     unsigned char* dnaLSB = _LaunchDNAEncoding(diffLSB, m_chaoticStreamLorenz, d_scratchC, size);
+    check_cuda("DNA Encoding Kernel (LSB)");
 
-    unsigned char* opMSB = _LaunchPerformDNAOperation(dnaMSB, m_chaoticStreamLorenz, d_scratchB, size);
-    unsigned char* opLSB = _LaunchPerformDNAOperation(dnaLSB, m_chaoticStreamChen,   d_scratchD, size);
+    // 5. RUN IMAGE ZIPPING (DNA Addition)
+    // Input: A + C  |  Output: B (The final merged ciphertext)
+    unsigned char* finalEncryptedDevice = _LauchImageMerginZip(dnaMSB, dnaLSB, d_scratchB, size);
+    check_cuda("Image Merging Zip Kernel");
 
-    unsigned char* decMSB = _LaunchDNADecoding(opMSB, d_scratchA, size);    //for now this is useless
-    unsigned char* decLSB = _LaunchDNADecoding(opLSB, d_scratchC, size);    //this also the same case
+    // ====================================================================
+    // EXPORT TO CPU
+    // ====================================================================
+    unsigned char* h_main_cipher = new unsigned char[size];
+    unsigned char* h_aux_cipher  = new unsigned char[size];
 
-    unsigned char* finalEncryptedDevice = _LauchImageMerginZip(decMSB, decLSB, d_scratchA, size);
+    cudaMemcpy(h_main_cipher, finalEncryptedDevice, size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_aux_cipher, dnaLSB, size, cudaMemcpyDeviceToHost); // The un-zipped LSB branch
 
-    unsigned char* h_encrypted_output = new unsigned char[size];
-    cudaMemcpy(h_encrypted_output, finalEncryptedDevice, size, cudaMemcpyDeviceToHost);
-
-    return h_encrypted_output;
-}
-
-bool encryptionEngine::pushImageIntoQueueBuffer(const unsigned char* input) {
-    imageData newFrame = m_referenceFormat; 
-    newFrame.imagePixelValues = const_cast<unsigned char*>(input); 
-    
-    std::lock_guard<std::mutex> lock(m_queueMutex);
-    m_inputImageQueueBuffer.push(newFrame);
-    
-    return true;
-}
-
-void encryptionEngine::stop() {
-    isRunning = false;
-}
-void encryptionEngine::run() {
-    int frame_count = 0;
-    while(isRunning) {
-        unsigned char* rawPixels = nullptr;
-        int streamByteSize = 0;
-
-        { 
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            if(m_inputImageQueueBuffer.empty()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                continue;
-            }
-            rawPixels = m_inputImageQueueBuffer.front().imagePixelValues;
-            streamByteSize = m_inputImageQueueBuffer.front().sizeOfImageFileInByte;
-            m_inputImageQueueBuffer.pop(); 
-        }
-
-        std::cout << "  [GPU-WORKER]: Encrypting frame " << frame_count << " (" << m_referenceFormat.width << "x" << m_referenceFormat.height << ")...\n";
-        
-        unsigned char* cipherText = _encrypt(rawPixels, streamByteSize);
-        
-        // 1. Safely recursively build the output directory
-        if (!fs::exists(m_outputDir)) {
-            std::error_code ec;
-            fs::create_directories(m_outputDir, ec);
-        }
-
-        std::string out_path = m_outputDir + "/encrypted_frame_" + std::to_string(frame_count) + ".png";
-        
-        // 2. DIAGNOSTIC DISK WRITE CHECK
-        FILE* test_file = fopen(out_path.c_str(), "wb");
-        if (!test_file) {
-            std::cerr << "  [FATAL ERROR]: OS blocked file creation at '" << out_path << "'\n";
-            std::cerr << "  [OS REASON]: " << std::strerror(errno) << "\n";
-        } else {
-            fclose(test_file); // Close the test handle
-            
-            // Pass stride as 0 to let STB calculate the memory alignment safely
-            int res = stbi_write_png(out_path.c_str(), m_referenceFormat.width, m_referenceFormat.height, m_referenceFormat.channels, cipherText, 0);
-            
-            if(res != 0) std::cout << "  [DISK]: Successfully saved -> " << out_path << "\n";
-            else std::cerr << "  [FATAL ERROR]: stbi_write_png failed internally!\n";
-        }
-
-        delete[] cipherText;
-        stbi_image_free(rawPixels);
-        frame_count++;
-    }    
+    return {h_main_cipher, h_aux_cipher};
 }

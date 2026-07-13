@@ -116,50 +116,65 @@ namespace ComputePipeline {
                 filepaths.push_back(path);
             }
         }
-        // Ensure alphabetical processing so it aligns perfectly with Python
         std::sort(filepaths.begin(), filepaths.end());
         return filepaths;
-    }
-
-    template <typename EngineType>
-    void _blockUntilQueueDrained(EngineType& engine) {
-        while (engine.getRemainingQueueSize() > 0) {
-            std::this_thread::yield(); 
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(250)); 
     }
 
     void executeEncryption(const SystemConfig& config, bool runDifferentialAsset = false) {
         std::vector<std::string> targets = _fetchImageTargets(config.inputDir);
         if (targets.empty()) return;
 
-        std::cout << "[SYSTEM BOOT]: Igniting master encryptionEngine hardware...\n";
+        if (!fs::exists(config.outputDir)) fs::create_directories(config.outputDir);
+
+        std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Encryption Engine...\n";
         
-        int width = 0, height = 0, channels = 0;
-        unsigned char* probe = stbi_load(targets[0].c_str(), &width, &height, &channels, 3);
+        int w = 0, h = 0, c = 0;
+        unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
         if(!probe) return;
         stbi_image_free(probe); 
         
-        imageData streamFormat;
-        streamFormat.imagePixelValues      = nullptr;
-        streamFormat.width                 = width;
-        streamFormat.height                = height;
-        streamFormat.channels              = 3;
-        streamFormat.sizeOfImageFileInByte = width * height * 3;
+        imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
 
-        // SINGLE INSTANCE - Maximum Speed
-        encryptionEngine masterEncrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys(), config.outputDir);
-        std::thread computeWorker(&encryptionEngine::run, &masterEncrypt);
+        encryptionEngine masterEncrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys());
         
         for (const auto& file : targets) {
+            std::string original_filename = fs::path(file).filename().string();
+            
+            // Re-fetch image parameters safely
             int w, h, c;
             unsigned char* h_frameBytes = stbi_load(file.c_str(), &w, &h, &c, 3);
-            if (h_frameBytes) masterEncrypt.pushImageIntoQueueBuffer(h_frameBytes);
+            if (!h_frameBytes) continue;
+
+            std::cout << "\n  [HOST]: Encrypting " << original_filename << "...\n";
+            std::cout << "    -> Triggering GPU compute...\n";
+            
+            auto ciphers = masterEncrypt.encrypt(h_frameBytes, streamFormat.sizeOfImageFileInByte);
+            
+            std::cout << "    -> GPU returned successfully.\n";
+
+            // Save Main Ciphertext
+            std::string main_out = config.outputDir + "/" + original_filename;
+            std::cout << "    -> Saving Main Cipher to OS: " << main_out << "\n";
+            int res1 = stbi_write_png(main_out.c_str(), w, h, 3, ciphers.first, 0);
+
+            // Save Auxiliary Ciphertext (Prefix with aux_)
+            std::string aux_out = config.outputDir + "/aux_" + original_filename;
+            std::cout << "    -> Saving Aux Cipher to OS: " << aux_out << "\n";
+            int res2 = stbi_write_png(aux_out.c_str(), w, h, 3, ciphers.second, 0);
+
+            if(res1 == 0 || res2 == 0) {
+                 std::cerr << "    [FATAL]: stbi_write_png failed to save!\n";
+            } else {
+                 std::cout << "    -> Disk save complete.\n";
+            }
+
+            // Clean up heap safely
+            std::cout << "    -> Freeing memory...\n";
+            delete[] ciphers.first;
+            delete[] ciphers.second;
+            stbi_image_free(h_frameBytes);
+            std::cout << "  [HOST]: Frame complete!\n";
         }
-        
-        _blockUntilQueueDrained(masterEncrypt);
-        masterEncrypt.stop();
-        if (computeWorker.joinable()) computeWorker.join();
         
         std::cout << " [SUCCESS]: Encryption Complete! Saved -> '" << config.outputDir << "/'\n";
     }
@@ -168,36 +183,48 @@ namespace ComputePipeline {
         std::vector<std::string> targets = _fetchImageTargets(config.inputDir);
         if (targets.empty()) return;
 
-        std::cout << "[SYSTEM BOOT]: Igniting master decryptionEngine hardware...\n";
+        if (!fs::exists(config.outputDir)) fs::create_directories(config.outputDir);
+
+        std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Decryption Engine...\n";
         
-        int width = 0, height = 0, channels = 0;
-        unsigned char* probe = stbi_load(targets[0].c_str(), &width, &height, &channels, 3);
+        int w = 0, h = 0, c = 0;
+        unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
         if(!probe) return;
         stbi_image_free(probe); 
         
-        imageData streamFormat;
-        streamFormat.imagePixelValues      = nullptr;
-        streamFormat.width                 = width;
-        streamFormat.height                = height;
-        streamFormat.channels              = 3;
-        streamFormat.sizeOfImageFileInByte = width * height * 3;
+        imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
 
-        decryptionEngine masterDecrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys(), config.outputDir);
-        std::thread computeWorker(&decryptionEngine::run, &masterDecrypt);
+        decryptionEngine masterDecrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys());
         
         for (const auto& file : targets) {
-            int w, h, c;
-            unsigned char* h_frameBytes = stbi_load(file.c_str(), &w, &h, &c, 3);
-            if (h_frameBytes) {
-                imageData nextFrame = streamFormat;
-                nextFrame.imagePixelValues = h_frameBytes;
-                masterDecrypt.pushIntoTheQueue(nextFrame);
+            std::string original_filename = fs::path(file).filename().string();
+            
+            // Skip the auxiliary files during the main loop, we load them manually!
+            if (original_filename.find("aux_") == 0) continue;
+
+            std::string aux_filepath = config.inputDir + "/aux_" + original_filename;
+
+            unsigned char* main_cipher = stbi_load(file.c_str(), &w, &h, &c, 3);
+            unsigned char* aux_cipher = stbi_load(aux_filepath.c_str(), &w, &h, &c, 3);
+
+            if (!main_cipher || !aux_cipher) {
+                std::cerr << "  [ERROR]: Missing matching aux_ file for " << original_filename << "\n";
+                if(main_cipher) stbi_image_free(main_cipher);
+                continue;
             }
+
+            std::cout << "  [HOST]: Decrypting " << original_filename << "...\n";
+
+            // Trigger Engine
+            unsigned char* plainText = masterDecrypt.decrypt(main_cipher, aux_cipher, streamFormat.sizeOfImageFileInByte);
+
+            std::string out_path = config.outputDir + "/" + original_filename;
+            stbi_write_png(out_path.c_str(), w, h, 3, plainText, 0);
+
+            delete[] plainText;
+            stbi_image_free(main_cipher);
+            stbi_image_free(aux_cipher);
         }
-        
-        _blockUntilQueueDrained(masterDecrypt);
-        masterDecrypt.stop();
-        if (computeWorker.joinable()) computeWorker.join();
         
         std::cout << " [SUCCESS]: Batch Decryption Complete! Output -> '" << config.outputDir << "/'\n";
     }
