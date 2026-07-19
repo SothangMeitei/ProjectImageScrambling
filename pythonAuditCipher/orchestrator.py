@@ -77,3 +77,8 @@ class CipherAuditSuite:
         print("\n=== KEY SENSITIVITY TEST ===")
         print(f"NPCR (Should be > 99.6%) : {npcr:.4f}%")
         print(f"UACI (Should be ~ 33.4%) : {uaci:.4f}%")
+    
+    def run_nist_image_audit(self):
+        """Dynamically binds the NIST analysis suite into the runtime image loop."""
+        from .NIST_key_stream_test import NISTAnalyzer
+        NISTAnalyzer.run_suite(self.cipher)

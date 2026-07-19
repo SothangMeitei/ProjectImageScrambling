@@ -3,10 +3,10 @@
 #include "lorenzHyperChaoticSystem.h"
 
 constexpr float h{0.00001f};
+constexpr int DECIMATION_FACTOR{50}; 
 
 struct vec4 {
     float x; float y; float z; float w;
-
     vec4 operator+(const vec4& r) const { return {x + r.x, y + r.y, z + r.z, w + r.w}; }
     vec4 operator*(float s) const       { return {x * s, y * s, z * s, w * s}; }
 };
@@ -37,11 +37,10 @@ lorenzChaoticSystem::lorenzChaoticSystem(
 ) : m_initialArguments{initialArgument},
     m_sizeOfChaoticStream{requriedNoOfChaoticNumbers} 
 {
-    // Allocated directly as floats
     m_chaoticStreams.x = new float[m_sizeOfChaoticStream];
     m_chaoticStreams.y = new float[m_sizeOfChaoticStream];
     m_chaoticStreams.z = new float[m_sizeOfChaoticStream];
-    m_chaoticStreams.w = new float[m_sizeOfChaoticStream]; 
+    m_chaoticStreams.w = new float[m_sizeOfChaoticStream];
 }
 
 lorenzChaoticSystem::~lorenzChaoticSystem() {
@@ -68,9 +67,13 @@ void lorenzChaoticSystem::generate() {
         curr = stepRK4HyperLorenz(curr, a, b, c, d, e);
     }
 
-    // 2. Pure ODE stream capture
+    // 2. Pure ODE stream capture (NOW WITH DECIMATION)
     for(int i = 0; i < m_sizeOfChaoticStream; ++i) {
-        curr = stepRK4HyperLorenz(curr, a, b, c, d, e);
+        
+        // Skip 50 iterations between saves
+        for(int skip = 0; skip < DECIMATION_FACTOR; ++skip) {
+            curr = stepRK4HyperLorenz(curr, a, b, c, d, e);
+        }
 
         m_chaoticStreams.x[i] = curr.x;
         m_chaoticStreams.y[i] = curr.y;

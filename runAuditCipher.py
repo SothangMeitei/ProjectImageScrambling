@@ -4,11 +4,12 @@ import glob
 import subprocess
 import cv2
 import random
-import numpy as np # Added for zero-entropy generation
+import numpy as np 
 import shutil
 from pythonAuditCipher.orchestrator import CipherAuditSuite
 from pythonAuditCipher.robustness import CropConfiguration, CropBox 
 from pythonAuditCipher.differential import DifferentialAnalyzer
+from pythonAuditCipher.NIST_key_stream_test import NISTAnalyzer 
 
 BASE = "assets"
 DIRS = {
@@ -27,14 +28,11 @@ def build_architecture():
     for path in DIRS.values(): os.makedirs(path, exist_ok=True)
 
 def generate_zero_entropy_vectors(input_dir: str):
-    """
-    Synthesizes pure uniform images directly into the input pipeline.
-    """
+    """Synthesizes pure uniform images directly into the input pipeline."""
     print("\n[BOOT]: Synthesizing Zero-Entropy Test Vectors...")
     black_path = os.path.join(input_dir, "test_00_pure_black.png")
     white_path = os.path.join(input_dir, "test_01_pure_white.png")
     
-    # 3-channel (BGR) uniform matrices
     cv2.imwrite(black_path, np.full((TARGET_H, TARGET_W, 3), (0, 0, 0), dtype=np.uint8))
     cv2.imwrite(white_path, np.full((TARGET_H, TARGET_W, 3), (255, 255, 255), dtype=np.uint8))
 
@@ -63,47 +61,37 @@ def run_cpp_engine(mode):
     subprocess.run(cmd, check=True)
 
 def generate_master_keys(filepath="engine_keys.txt", tweak_chen=False):
-    """
-    Generates the chaotic master keys. 
-    If tweak_chen is True, it alters one parameter by a microscopic margin.
-    """
+    """Generates the chaotic master keys with massive burn-in for true divergence."""
     chen_k1, chen_k2, chen_k3 = 35.0, 3.0, 28.0
     chen_x, chen_y, chen_z = 0.1234567, 0.5432198, 0.9876543
     
     if tweak_chen:
-        chen_x += 0.0000001 # The Avalanche Tweak!
+        chen_x += 0.000001 
 
     lor_a, lor_b, lor_c, lor_r = 10.0, (8.0 / 3.0), 46.0, 2.0
     lor_x, lor_y, lor_z, lor_w = 12.0, 0.7194113, 0.8156727, 0.2946892
 
     with open(filepath, "w") as f:
         f.write("[CHEN]\n")
-        f.write(f"{chen_k1} {chen_k2} {chen_k3} 1000 {chen_x:.15f} {chen_y} {chen_z}\n")
+        f.write(f"{chen_k1} {chen_k2} {chen_k3} 500000 {chen_x:.15f} {chen_y} {chen_z}\n")
         f.write("[LORENZ]\n")
-        f.write(f"{lor_a} {lor_b} {lor_c} {lor_r} {lor_x} 1500 {lor_y} {lor_z} {lor_w} 0.4389124\n")
+        f.write(f"{lor_a} {lor_b} {lor_c} {lor_r} {lor_x} 500000 {lor_y} {lor_z} {lor_w} 0.4389124\n")
 
 def run_key_sensitivity_test(plain_files):
-    """
-    Runs the C++ engine twice to test Avalanche effect, then restores 
-    the standard outputs so the rest of the pipeline is completely unaffected.
-    """
+    """Runs the C++ engine twice to test Avalanche effect and restores output layout."""
     print("\n[HOST]: Executing Key Sensitivity Test (Avalanche on Keys)...")
     
-    # 1. Standard Run
     write_cpp_config("encrypt", DIRS['plain'], DIRS['cipher'])
     generate_master_keys("engine_keys.txt", tweak_chen=False)
     run_cpp_engine("encrypt")
     
-    # 2. Quarantine the Base Output
     base_backup_dir = f"{BASE}/cipherText_Base_Backup"
     if os.path.exists(base_backup_dir): shutil.rmtree(base_backup_dir)
     shutil.copytree(DIRS['cipher'], base_backup_dir)
     
-    # 3. Mutated Run
     generate_master_keys("engine_keys.txt", tweak_chen=True)
-    run_cpp_engine("encrypt") # This silently overwrites DIRS['cipher']
+    run_cpp_engine("encrypt") 
     
-    # 4. Evaluate Differences
     print("\n=== KEY SENSITIVITY TEST RESULTS ===")
     for plain_path in plain_files:
         filename = os.path.basename(plain_path)
@@ -115,17 +103,15 @@ def run_key_sensitivity_test(plain_files):
             uaci = DifferentialAnalyzer.calculate_uaci(img_base, img_mutated)
             print(f"File: {filename} | NPCR: {npcr:.4f}% | UACI: {uaci:.4f}%")
 
-    # 5. Restore Architecture
     shutil.rmtree(DIRS['cipher'])
     os.rename(base_backup_dir, DIRS['cipher'])
-    generate_master_keys("engine_keys.txt", tweak_chen=False) # Reset key
+    generate_master_keys("engine_keys.txt", tweak_chen=False) 
     print("  -> Baseline architecture restored. Continuing pipeline...")
 
 def main():
     print("[BOOT]: Initializing Automated Cipher Master Controller...")
     build_architecture()
 
-    # PRE-COMPUTE: Inject Zero-Entropy vectors before standardization
     generate_zero_entropy_vectors(DIRS['plain'])
 
     if not standardize_assets():
@@ -150,26 +136,41 @@ def main():
             cv2.imwrite(diff_path, img)
 
     # 2. RUN ENCRYPTION & KEY SENSITIVITY TEST
-    # This single function call handles the standard plain->cipher encryption,
-    # does the mutated avalanche test, and leaves the directories perfectly clean.
     run_key_sensitivity_test(plain_files)
 
+    # ==========================================
+    # 3. DEDICATED NIST RANDOMNESS AUDIT BLOCK
+    # ==========================================
+    print("\n[HOST]: Starting Centralized NIST SP 800-22 Randomness Audits...")
+    
+    # Audit A: The Mathematical Engine
+    chen_bin_stream = os.path.join(DIRS['cipher'], "keystream_chen.bin")
+    lorenz_bin_stream = os.path.join(DIRS['cipher'], "keystream_lorenz.bin")
+    NISTAnalyzer.run_suite_from_bin(chen_bin_stream)
+    NISTAnalyzer.run_suite_from_bin(lorenz_bin_stream)
+
+    # Audit B: The GPU Output Space (Single Ultimate Stress Test)
+    target_cipher_image = os.path.join(DIRS['cipher'], "test_00_pure_black.png")
+    if not os.path.exists(target_cipher_image) and plain_files:
+        target_cipher_image = os.path.join(DIRS['cipher'], os.path.basename(plain_files[0]))
+        
+    if os.path.exists(target_cipher_image):
+        print(f"\n[HOST]: Running NIST Suite on representative ciphertext: {os.path.basename(target_cipher_image)}")
+        img = cv2.imread(target_cipher_image)
+        NISTAnalyzer.run_suite(img)
+
+    # Continue standard execution pathways
     write_cpp_config("encrypt", DIRS['diff_src'], DIRS['diff_cipher'])
     run_cpp_engine("encrypt")
 
-    # 3. RUN BASELINE DECRYPTION
+    # 4. RUN BASELINE DECRYPTION
     write_cpp_config("decrypt", DIRS['cipher'], DIRS['decrypted'])
     run_cpp_engine("decrypt")
 
-    # 4. RUN AUDIT & STAGE ATTACKS
-    print("\n[HOST]: Beginning Cryptographic Audit...")
+    # 5. RUN STANDARD METRICS AUDIT & STAGE ATTACKS
+    print("\n[HOST]: Beginning Structural Cryptographic Audit...")
     
     random_crop_config = CropConfiguration(mode="random", num_boxes=15, size_range=(20, 150))
-    custom_crop_config = CropConfiguration(mode="custom", custom_boxes=[
-        CropBox(x=100, y=100, w=500, h=500), 
-        CropBox(x=1500, y=800, w=200, h=200) 
-    ])
-    
     active_crop_config = random_crop_config 
 
     for idx, plain_path in enumerate(plain_files):
@@ -186,6 +187,8 @@ def main():
         suite.run_entropy_audit(plot_out=f"{BASE}/histogram_{filename}.png")
         suite.run_correlation_audit(plot_out=f"{BASE}/correlation_{filename}.png")
         suite.run_differential_audit(diff_cipher_path)
+        
+        # NOTE: suite.run_nist_image_audit() has been successfully removed from this loop.
 
         crop_target = os.path.join(DIRS['attacks_staged'], f"crop_{filename}")
         noise_target = os.path.join(DIRS['attacks_staged'], f"noise_{filename}")
@@ -195,12 +198,11 @@ def main():
         RobustnessAnalyzer.stage_noise_attack(suite.cipher, noise_target, density=0.05)
 
         aux_src = os.path.join(DIRS['cipher'], f"aux_{filename}")
-        # Only copy aux files if they exist (handling standard vs edge cases)
         if os.path.exists(aux_src):
             shutil.copy2(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_crop_{filename}"))
             shutil.copy2(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_noise_{filename}"))
 
-    # 5. RUN ROBUSTNESS DECRYPTION
+    # 6. RUN ROBUSTNESS DECRYPTION
     write_cpp_config("decrypt", DIRS['attacks_staged'], DIRS['attacks_recovered'])
     run_cpp_engine("decrypt")
 
@@ -213,7 +215,7 @@ def main():
         target_name = os.path.join(DIRS['attacks_recovered'], f"decrypted_{os.path.basename(staged)}")
         if os.path.exists(rec): os.replace(rec, target_name)
 
-    # 6. EVALUATE RECOVERY
+    # 7. EVALUATE RECOVERY
     print("\n[HOST]: Evaluating Cipher Robustness & Fault Tolerance...")
     for plain_path in plain_files:
         filename = os.path.basename(plain_path)

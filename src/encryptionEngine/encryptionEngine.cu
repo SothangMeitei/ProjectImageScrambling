@@ -200,7 +200,7 @@ unsigned char* encryptionEngine::_LauchImageMerginZip(
 
 void encryptionEngine::exportKeystreams(const std::string& outputDirectory, int size) {
     static bool already_exported = false;
-    if (already_exported) return; 
+    if (already_exported) return;
 
     try {
         std::string chenPath = outputDirectory + "/keystream_chen.bin";

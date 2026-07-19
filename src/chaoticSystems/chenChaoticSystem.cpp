@@ -3,10 +3,11 @@
 #include "chenChaoticSystem.h"
 
 constexpr float h{0.00001f};
+// We define the sub-sampling factor to shatter the continuity of the curve
+constexpr int DECIMATION_FACTOR{50}; 
 
 struct vec3 {
     float x; float y; float z;
-
     vec3 operator+(const vec3& r) const { return {x + r.x, y + r.y, z + r.z}; }
     vec3 operator*(float s) const       { return {x * s, y * s, z * s}; }
 };
@@ -56,14 +57,18 @@ void chenChaoticSystem::generate() {
     const float b = m_initialArguments.b;
     const float c = m_initialArguments.c;
 
-    // 1. Burn-in / Transient Discard Phase (Stabilizing the trajectory into chaos)
+    // 1. Burn-in / Transient Discard Phase
     for(int i = 0; i < m_initialArguments.initialIterationCount; ++i) {
         curr = stepRK4Chen(curr, a, b, c);
     }
 
-    // 2. Pure ODE stream capture
+    // 2. Pure ODE stream capture (NOW WITH DECIMATION)
     for(int i = 0; i < m_sizeOfChaoticStream; ++i) {
-        curr = stepRK4Chen(curr, a, b, c);
+        
+        // Skip 50 iterations between saves to destroy mathematical predictability
+        for(int skip = 0; skip < DECIMATION_FACTOR; ++skip) {
+            curr = stepRK4Chen(curr, a, b, c);
+        }
 
         m_chaoticStreams.x[i] = curr.x;
         m_chaoticStreams.y[i] = curr.y;
