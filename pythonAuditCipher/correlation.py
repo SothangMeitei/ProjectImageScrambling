@@ -41,47 +41,36 @@ class CorrelationAnalyzer:
         h, w = plain.shape
         x, y = np.random.randint(0, w - 1, samples), np.random.randint(0, h - 1, samples)
 
-        #==========================================================================================================
-        #==========================================================================================================
-        #==========================================================================================================
+        # Safely split the directory and filename!
+        base_dir = os.path.dirname(output_path)
+        base_name = os.path.basename(output_path)
 
+        # --- Horizontal ---
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
         ax1.scatter(plain[y, x], plain[y, x + 1], s=1, c='blue', alpha=0.5)
-        ax1.set_title("Plaintext: Horizontal Correlation")
-        
+        ax1.set_title("Plaintext: Horizontal")
         ax2.scatter(cipher[y, x], cipher[y, x + 1], s=1, c='red', alpha=0.5)
-        ax2.set_title("Ciphertext: Horizontal Correlation")
-        
+        ax2.set_title("Ciphertext: Horizontal")
         plt.tight_layout()
-        plt.savefig(output_path)
+        plt.savefig(os.path.join(base_dir, f"horizontal_{base_name}"))
         plt.close()
 
-        #==========================================================================================================
-        #==========================================================================================================
-        #==========================================================================================================
-
+        # --- Vertical ---
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
         ax1.scatter(plain[y, x], plain[y + 1, x], s=1, c='blue', alpha=0.5)
-        ax1.set_title("Plaintext: vertical Correlation")
-        
+        ax1.set_title("Plaintext: Vertical")
         ax2.scatter(cipher[y, x], cipher[y + 1, x], s=1, c='red', alpha=0.5)
-        ax2.set_title("Ciphertext: vertical Correlation")
-        
+        ax2.set_title("Ciphertext: Vertical")
         plt.tight_layout()
-        plt.savefig(output_path)
+        plt.savefig(os.path.join(base_dir, f"vertical_{base_name}"))
         plt.close()
 
-        #==========================================================================================================
-        #==========================================================================================================
-        #==========================================================================================================
-
+        # --- Diagonal ---
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
         ax1.scatter(plain[y, x], plain[y + 1, x + 1], s=1, c='blue', alpha=0.5)
-        ax1.set_title("Plaintext: diagonal Correlation")
-        
+        ax1.set_title("Plaintext: Diagonal")
         ax2.scatter(cipher[y, x], cipher[y + 1, x + 1], s=1, c='red', alpha=0.5)
-        ax2.set_title("Ciphertext: diagonal Correlation")
-        
+        ax2.set_title("Ciphertext: Diagonal")
         plt.tight_layout()
-        plt.savefig(output_path)
+        plt.savefig(os.path.join(base_dir, f"diagonal_{base_name}"))
         plt.close()

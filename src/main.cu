@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <fstream>
 #include <unordered_map>
+#include <chrono>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "../vendor/stb/stb_image.h"
@@ -98,11 +99,56 @@ namespace ConfigManager {
 
 namespace KeyVault {
     chenInitialArguments getChenMasterKeys() {
-        return chenInitialArguments(35.0f, 3.0f, 28.0f, 1000, 0.1234567f, 0.5432198f, 0.9876543f);
+        std::cerr << "    -> [chen VAULT]: Entered function." << std::endl;
+
+        std::ifstream file("engine_keys.txt");
+        std::string token;
+        
+        // MATHEMATICALLY STABLE DEFAULTS
+        float k1 = 35.0f, k2 = 3.0f, k3 = 28.0f;
+        float x = 0.1234567f, y = 0.5432198f, z = 0.9876543f; 
+        int t = 1000;
+        std::cerr << "    -> [chen VAULT]: Default vars set. Checking file..." << std::endl;
+
+        if (file.is_open()) {
+            // Using '>>' natively ignores all \r and \n formatting bugs!
+            while (file >> token) {
+                if (token == "[CHEN]") {
+                    file >> k1 >> k2 >> k3 >> t >> x >> y >> z;
+                    break;
+                }
+            }
+        } else {
+            std::cerr << "  [WARNING]: engine_keys.txt not found. Booting with default Chen seeds.\n";
+        }
+        std::cerr << "    -> [chen VAULT]: Returning struct (Danger Zone)..." << std::endl;
+
+        return chenInitialArguments(k1, k2, k3, t, x, y, z);
     }
 
     lorenzInitialArguments getLorenzMasterKeys() {
-        return lorenzInitialArguments(10.0f, (8.0f / 3.0f), 46.0f, 2.0f, 12.0f, 1500, 0.7194113f, 0.8156727f, 0.2946892f, 0.4389124f);
+        std::cerr << "    -> [LORENZ VAULT]: Entered function." << std::endl;
+        std::ifstream file("engine_keys.txt");
+        std::string token;
+        
+        float a = 10.0f, b = (8.0f / 3.0f), c = 46.0f, r = 2.0f;
+        float x = 12.0f, y = 0.7194113f, z = 0.8156727f, w = 0.2946892f, step = 0.4389124f; 
+        int t = 1500;
+
+        std::cerr << "    -> [LORENZ VAULT]: Default vars set. Checking file..." << std::endl;
+        if (file.is_open()) {
+            while (file >> token) {
+                if (token == "[LORENZ]") {
+                    file >> a >> b >> c >> r >> x >> t >> y >> z >> w >> step;
+                    break;
+                }
+            }
+        } else {
+            std::cerr << "    -> [WARNING]: engine_keys.txt not found. Using Lorenz defaults." << std::endl;
+        }
+        
+        std::cerr << "    -> [LORENZ VAULT]: Returning struct (Danger Zone)..." << std::endl;
+        return lorenzInitialArguments(a, b, c, r, x, t, y, z, w, step);
     }
 }
 
@@ -126,57 +172,83 @@ namespace ComputePipeline {
 
         if (!fs::exists(config.outputDir)) fs::create_directories(config.outputDir);
 
-        std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Encryption Engine...\n";
+        // std::endl forces Python to display the text immediately!
+        std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Encryption Engine..." << std::endl;
         
         int w = 0, h = 0, c = 0;
         unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
-        if(!probe) return;
+        if(!probe) {
+            std::cout << "[FATAL]: Failed to load initial probe image!" << std::endl;
+            return;
+        }
         stbi_image_free(probe); 
         
         imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
 
-        encryptionEngine masterEncrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys());
-        
+        encryptionEngine* masterEncrypt = nullptr;
+        try {
+            chenInitialArguments cKeys = KeyVault::getChenMasterKeys();
+            
+            lorenzInitialArguments lKeys = KeyVault::getLorenzMasterKeys();
+            
+            masterEncrypt = new encryptionEngine(streamFormat, cKeys, lKeys);
+                        
+        } catch (const std::exception& e) {
+            return; // Exit safely instead of crashing Windows!
+        }
+
+        std::cout << "  -> Engine Initialized successfully!" << std::endl;
+
         for (const auto& file : targets) {
             std::string original_filename = fs::path(file).filename().string();
-            
-            // Re-fetch image parameters safely
-            int w, h, c;
+            std::cout << "\n  [HOST]: Encrypting " << original_filename << "..." << std::endl;
+
+            auto time_total_start = std::chrono::high_resolution_clock::now();
+
+            auto time_io_start = std::chrono::high_resolution_clock::now();
             unsigned char* h_frameBytes = stbi_load(file.c_str(), &w, &h, &c, 3);
-            if (!h_frameBytes) continue;
-
-            std::cout << "\n  [HOST]: Encrypting " << original_filename << "...\n";
-            std::cout << "    -> Triggering GPU compute...\n";
-            
-            auto ciphers = masterEncrypt.encrypt(h_frameBytes, streamFormat.sizeOfImageFileInByte);
-            
-            std::cout << "    -> GPU returned successfully.\n";
-
-            // Save Main Ciphertext
-            std::string main_out = config.outputDir + "/" + original_filename;
-            std::cout << "    -> Saving Main Cipher to OS: " << main_out << "\n";
-            int res1 = stbi_write_png(main_out.c_str(), w, h, 3, ciphers.first, 0);
-
-            // Save Auxiliary Ciphertext (Prefix with aux_)
-            std::string aux_out = config.outputDir + "/aux_" + original_filename;
-            std::cout << "    -> Saving Aux Cipher to OS: " << aux_out << "\n";
-            int res2 = stbi_write_png(aux_out.c_str(), w, h, 3, ciphers.second, 0);
-
-            if(res1 == 0 || res2 == 0) {
-                 std::cerr << "    [FATAL]: stbi_write_png failed to save!\n";
-            } else {
-                 std::cout << "    -> Disk save complete.\n";
+            if (!h_frameBytes) {
+                std::cout << "  [ERROR]: Failed to load " << original_filename << std::endl;
+                continue;
             }
+            auto time_io_end = std::chrono::high_resolution_clock::now();
+            float disk_io_ms = std::chrono::duration<float, std::milli>(time_io_end - time_io_start).count();
 
-            // Clean up heap safely
-            std::cout << "    -> Freeing memory...\n";
+            std::cout << "  -> Firing GPU Kernels..." << std::endl;
+            auto ciphers = masterEncrypt->encrypt(h_frameBytes, streamFormat.sizeOfImageFileInByte);
+            std::cout << "  -> GPU Kernels Complete!" << std::endl;
+
+            std::cout << "  -> Exporting Keystreams..." << std::endl;
+            masterEncrypt->exportKeystreams(config.outputDir, streamFormat.sizeOfImageFileInByte);
+            std::cout << "  -> Keystreams Exported!" << std::endl;
+
+            time_io_start = std::chrono::high_resolution_clock::now();
+            std::string main_out = config.outputDir + "/" + original_filename;
+            stbi_write_png(main_out.c_str(), w, h, 3, ciphers.first, 0);
+
+            std::string aux_out = config.outputDir + "/aux_" + original_filename;
+            stbi_write_png(aux_out.c_str(), w, h, 3, ciphers.second, 0);
+            time_io_end = std::chrono::high_resolution_clock::now();
+            
+            disk_io_ms += std::chrono::duration<float, std::milli>(time_io_end - time_io_start).count();
+
+            auto time_total_end = std::chrono::high_resolution_clock::now();
+            float total_end_to_end_ms = std::chrono::duration<float, std::milli>(time_total_end - time_total_start).count();
+
+            std::cout << "      [HOST METRICS]: Disk I/O (stb_image)  : " << disk_io_ms << " ms" << std::endl;
+            std::cout << "      [SYS METRICS] : Total End-to-End Time : " << total_end_to_end_ms << " ms" << std::endl;
+            
+            float size_in_mb = (w * h * 3) / (1024.0f * 1024.0f);
+            float throughput_mb_s = size_in_mb / (total_end_to_end_ms / 1000.0f);
+            std::cout << "      [PERFORMANCE] : Throughput            : " << throughput_mb_s << " MB/s" << std::endl;
+
             delete[] ciphers.first;
             delete[] ciphers.second;
             stbi_image_free(h_frameBytes);
-            std::cout << "  [HOST]: Frame complete!\n";
         }
         
-        std::cout << " [SUCCESS]: Encryption Complete! Saved -> '" << config.outputDir << "/'\n";
+        std::cout << " [SUCCESS]: Encryption Complete! Saved -> '" << config.outputDir << "/'" << std::endl;
+        delete masterEncrypt;
     }
 
     void executeDecryption(const SystemConfig& config) {
@@ -194,7 +266,17 @@ namespace ComputePipeline {
         
         imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
 
-        decryptionEngine masterDecrypt(streamFormat, KeyVault::getChenMasterKeys(), KeyVault::getLorenzMasterKeys());
+        decryptionEngine* masterDecrypt{nullptr};
+        try {
+            chenInitialArguments cKeys = KeyVault::getChenMasterKeys();
+            
+            lorenzInitialArguments lKeys = KeyVault::getLorenzMasterKeys();
+            
+            masterDecrypt = new decryptionEngine(streamFormat, cKeys, lKeys);
+                        
+        } catch (const std::exception& e) {
+            return; // Exit safely instead of crashing Windows!
+        }
         
         for (const auto& file : targets) {
             std::string original_filename = fs::path(file).filename().string();
@@ -216,7 +298,7 @@ namespace ComputePipeline {
             std::cout << "  [HOST]: Decrypting " << original_filename << "...\n";
 
             // Trigger Engine
-            unsigned char* plainText = masterDecrypt.decrypt(main_cipher, aux_cipher, streamFormat.sizeOfImageFileInByte);
+            unsigned char* plainText = masterDecrypt->decrypt(main_cipher, aux_cipher, streamFormat.sizeOfImageFileInByte);
 
             std::string out_path = config.outputDir + "/" + original_filename;
             stbi_write_png(out_path.c_str(), w, h, 3, plainText, 0);

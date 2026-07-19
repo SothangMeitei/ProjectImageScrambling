@@ -65,3 +65,15 @@ class CipherAuditSuite:
         # NEW: Output the histogram
         EntropyAnalyzer.plot_histograms(self.plain, self.cipher, plot_out)
         print(f"[+] Histogram saved to {plot_out}")
+
+    def run_key_sensitivity_audit(plain_path: str, cipher_path_key1: str, cipher_path_key2: str):
+        c1 = cv2.imread(cipher_path_key1)
+        c2 = cv2.imread(cipher_path_key2)
+        
+        from pythonAuditCipher.differential import DifferentialAnalyzer
+        npcr = DifferentialAnalyzer.calculate_npcr(c1, c2)
+        uaci = DifferentialAnalyzer.calculate_uaci(c1, c2)
+        
+        print("\n=== KEY SENSITIVITY TEST ===")
+        print(f"NPCR (Should be > 99.6%) : {npcr:.4f}%")
+        print(f"UACI (Should be ~ 33.4%) : {uaci:.4f}%")

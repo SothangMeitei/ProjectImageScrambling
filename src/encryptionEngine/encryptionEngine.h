@@ -47,4 +47,6 @@ class encryptionEngine{
 
         // Now perfectly synchronous and returns BOTH images
         std::pair<unsigned char*, unsigned char*> encrypt(unsigned char* plainTextInputImage, int size);
+
+        void exportKeystreams(const std::string& outputDirectory, int size);
 };

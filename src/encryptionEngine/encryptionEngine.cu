@@ -15,6 +15,7 @@
 
 #include <cuda_runtime.h>
 #include "../kernelCode/kernelsEncrypt.cuh"
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -92,6 +93,7 @@ encryptionEngine::encryptionEngine(
 
     d_permMap             = nullptr;
     m_chaoticStreamChen   = chen3DChaoticStream();
+    
     m_chaoticStreamLorenz = lorenz4DHyperChaoticStream();
 }
 
@@ -196,9 +198,38 @@ unsigned char* encryptionEngine::_LauchImageMerginZip(
     return output;
 }
 
+void encryptionEngine::exportKeystreams(const std::string& outputDirectory, int size) {
+    static bool already_exported = false;
+    if (already_exported) return; 
+
+    try {
+        std::string chenPath = outputDirectory + "/keystream_chen.bin";
+        std::string lorenzPath = outputDirectory + "/keystream_lorenz.bin";
+
+        unsigned char* h_buffer = new unsigned char[size];
+
+        cudaMemcpy(h_buffer, m_chaoticStreamChen, size, cudaMemcpyDeviceToHost);
+        std::ofstream outChen(chenPath, std::ios::binary);
+        outChen.write(reinterpret_cast<char*>(h_buffer), size);
+        outChen.close();
+
+        cudaMemcpy(h_buffer, m_chaoticStreamLorenz, size, cudaMemcpyDeviceToHost);
+        std::ofstream outLorenz(lorenzPath, std::ios::binary);
+        outLorenz.write(reinterpret_cast<char*>(h_buffer), size);
+        outLorenz.close();
+
+        delete[] h_buffer;
+        std::cout << "      [SYS METRICS] : Chaotic Keystreams safely exported for NIST analysis." << std::endl;
+        
+        already_exported = true;
+    } catch (const std::exception& e) {
+        std::cout << "  [FATAL ERROR IN EXPORT]: " << e.what() << std::endl;
+    }
+}
+
 std::pair<unsigned char*, unsigned char*> encryptionEngine::encrypt(unsigned char* plainTextInputImage, int size) {
     
-    // --- THE TRIPWIRE ---
+
     auto check_cuda = [](const std::string& step) {
         cudaError_t err = cudaDeviceSynchronize();
         if (err != cudaSuccess) {
@@ -210,9 +241,31 @@ std::pair<unsigned char*, unsigned char*> encryptionEngine::encrypt(unsigned cha
         }
     };
 
+    cudaEvent_t start_mem, stop_mem, start_compute, stop_compute;
+    cudaEventCreate(&start_mem); cudaEventCreate(&stop_mem);
+    cudaEventCreate(&start_compute); cudaEventCreate(&stop_compute);
+
+    float pcie_transfer_ms = 0.0f;
+    float pure_compute_ms = 0.0f;
+
     _reallocateVRAMScratchpadIfNeeded(size);
+
+    // ==========================================
+    // 1. TIME: RAM -> VRAM (PCIe Bus) this for the timing of the PCI bus transfer
+    // ==========================================
+    cudaEventRecord(start_mem);
     cudaMemcpy(d_scratchB, plainTextInputImage, size, cudaMemcpyHostToDevice);
-    check_cuda("Initial Memcpy Host->Device");
+    cudaEventRecord(stop_mem);
+    cudaEventSynchronize(stop_mem);
+    
+    float temp_ms;
+    cudaEventElapsedTime(&temp_ms, start_mem, stop_mem);
+    pcie_transfer_ms += temp_ms;
+
+    // ==========================================
+    // 2. TIME: PURE GPU COMPUTE (Kernels)
+    // ==========================================
+    cudaEventRecord(start_compute);
 
     // 1. RUN BIT REPLACEMENT (Split Image)
     // Input: B  |  Output MSB -> A  |  Output LSB -> C
@@ -251,14 +304,33 @@ std::pair<unsigned char*, unsigned char*> encryptionEngine::encrypt(unsigned cha
     unsigned char* finalEncryptedDevice = _LauchImageMerginZip(dnaMSB, dnaLSB, d_scratchB, size);
     check_cuda("Image Merging Zip Kernel");
 
+    cudaEventRecord(stop_compute);
+    cudaEventSynchronize(stop_compute); // Wait for all kernels to mathematically finish
+    cudaEventElapsedTime(&pure_compute_ms, start_compute, stop_compute);
     // ====================================================================
     // EXPORT TO CPU
     // ====================================================================
+    // ==========================================
+    // 3. TIME: VRAM -> RAM (PCIe Bus)
+    // ==========================================
     unsigned char* h_main_cipher = new unsigned char[size];
     unsigned char* h_aux_cipher  = new unsigned char[size];
 
+    cudaEventRecord(start_mem);
     cudaMemcpy(h_main_cipher, finalEncryptedDevice, size, cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_aux_cipher, dnaLSB, size, cudaMemcpyDeviceToHost); // The un-zipped LSB branch
+    cudaMemcpy(h_aux_cipher, dnaLSB, size, cudaMemcpyDeviceToHost);
+    cudaEventRecord(stop_mem);
+    cudaEventSynchronize(stop_mem);
+
+    cudaEventElapsedTime(&temp_ms, start_mem, stop_mem);
+    pcie_transfer_ms += temp_ms;
+
+    // --- PRINT GPU METRICS ---
+    std::cout << "      [GPU METRICS]: PCIe Bus Transfer Time : " << pcie_transfer_ms << " ms\n";
+    std::cout << "      [GPU METRICS]: Pure Compute Time      : " << pure_compute_ms << " ms\n";
+
+    cudaEventDestroy(start_mem); cudaEventDestroy(stop_mem);
+    cudaEventDestroy(start_compute); cudaEventDestroy(stop_compute);
 
     return {h_main_cipher, h_aux_cipher};
 }
