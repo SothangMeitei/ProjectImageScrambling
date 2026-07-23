@@ -17,8 +17,8 @@ class decryptionEngine{
         unsigned char* d_chaoticMask;
 
         imageData   m_inputImageDataLayout;
-        chenInitialArguments    m_chenInitialArguments;
-        lorenzInitialArguments  m_lorenzInitialArguments;
+        chenInitialArguments<double>    m_chenInitialArguments;
+        lorenzInitialArguments<double>  m_lorenzInitialArguments;
         
         unsigned char* m_chenChaoticStreamRaw;
         unsigned char* m_lorenzChaoticStreamRaw;
@@ -36,7 +36,7 @@ class decryptionEngine{
         unsigned char* _reverseImageZipping(unsigned char* input1 , unsigned char* input2 , unsigned char* output, int size);
 
     public:
-        decryptionEngine(const imageData& , const chenInitialArguments& , const lorenzInitialArguments&);
+        decryptionEngine(const imageData& , const chenInitialArguments<double>& , const lorenzInitialArguments<double>&);
         ~decryptionEngine();
 
         // Takes BOTH images synchronously and returns the plain text

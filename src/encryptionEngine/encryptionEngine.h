@@ -12,8 +12,8 @@ class encryptionEngine{
     private:
         int                     m_streamSize;
         imageData               m_referenceFormat;
-        chenInitialArguments    m_chenArguments;
-        lorenzInitialArguments  m_lorenzArguments;
+        chenInitialArguments<double>    m_chenArguments;
+        lorenzInitialArguments<double>  m_lorenzArguments;
 
     private:
         unsigned char * m_chaoticStreamChen;
@@ -42,7 +42,7 @@ class encryptionEngine{
         unsigned char* _LauchImageMerginZip(unsigned char*, unsigned char*, unsigned char* , int);
 
     public:
-        encryptionEngine(const imageData& ,const chenInitialArguments& ,const lorenzInitialArguments&);
+        encryptionEngine(const imageData& ,const chenInitialArguments<double>& ,const lorenzInitialArguments<double>&);
         ~encryptionEngine();
 
         // Now perfectly synchronous and returns BOTH images

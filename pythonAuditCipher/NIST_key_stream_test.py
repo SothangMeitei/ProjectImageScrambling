@@ -7,40 +7,31 @@ class NISTAnalyzer:
          
     @staticmethod
     def run_suite(cipher_image: np.ndarray):
-        """Runs the NIST battery on a standard image array."""
+        """Runs the NIST battery on a standard ciphertext image array."""
         print("[NIST]: Unpacking ciphertext image into 1D binary stream...")
-        # FIXED: Cast to int32 to prevent Cumulative Sums overflow during random walks
         binary_sequence = np.unpackbits(cipher_image.flatten()).astype(np.int32)
         NISTAnalyzer._execute_battery(binary_sequence, "Ciphertext Image Data")
 
     @staticmethod
     def run_suite_from_bin(bin_path: str):
-        """Loads a raw C++ memory keystream dump from disk and runs the NIST battery."""
+        """Loads a processed C++ memory keystream dump from disk and runs the NIST battery."""
         if not os.path.exists(bin_path):
             print(f"[NIST ERROR]: Target keystream binary not found at: {bin_path}")
             return
         
-        print(f"[NIST]: Ingesting raw hardware dump from {bin_path}...")
+        print(f"[NIST]: Ingesting processed hardware dump from {bin_path}...")
         
-        # 1. Read the raw floats directly from the C++ engine memory dump
-        raw_floats = np.fromfile(bin_path, dtype=np.float32)
+        # Reads the processed bytes directly from C++ output (no float casts, no masking)
+        raw_bytes = np.fromfile(bin_path, dtype=np.uint8)
         
-        # 2. View them as 32-bit integers to bypass Python's high-level float rounding
-        raw_ints = raw_floats.view(np.uint32)
-        
-        # 3. Strip the rigid IEEE 754 Sign and Exponent bits. 
-        # Keep ONLY the lowest 8 bits of the mantissa (the deepest chaotic fraction).
-        pure_entropy_bytes = (raw_ints & 0xFF).astype(np.uint8)
-        
-        # 4. Unpack to binary, using int32 for mathematical safety
-        binary_sequence = np.unpackbits(pure_entropy_bytes).astype(np.int32)
+        # Unpack bytes into 1D binary stream (0s and 1s) for NIST
+        binary_sequence = np.unpackbits(raw_bytes).astype(np.int32)
         
         NISTAnalyzer._execute_battery(binary_sequence, os.path.basename(bin_path))
 
     @staticmethod
     def _execute_battery(binary_sequence: np.ndarray, target_name: str):
         """Internal execution pipeline for handling the nistrng battery layout."""
-        # OPTIMIZATION: Slice the sequence down to the NIST standard sample size
         NIST_STANDARD_SAMPLE = 1000000
         if len(binary_sequence) > NIST_STANDARD_SAMPLE:
             print(f"[NIST OPTIMIZATION]: Slicing stream from {len(binary_sequence)} down to {NIST_STANDARD_SAMPLE} bits.")

@@ -98,15 +98,15 @@ namespace ConfigManager {
 }
 
 namespace KeyVault {
-    chenInitialArguments getChenMasterKeys() {
+    chenInitialArguments<double> getChenMasterKeys() {
         std::cerr << "    -> [chen VAULT]: Entered function." << std::endl;
 
         std::ifstream file("engine_keys.txt");
         std::string token;
         
         // MATHEMATICALLY STABLE DEFAULTS
-        float k1 = 35.0f, k2 = 3.0f, k3 = 28.0f;
-        float x = 0.1234567f, y = 0.5432198f, z = 0.9876543f; 
+        double k1 = 35.0f, k2 = 3.0f, k3 = 28.0f;
+        double x = 0.1234567f, y = 0.5432198f, z = 0.9876543f; 
         int t = 1000;
         std::cerr << "    -> [chen VAULT]: Default vars set. Checking file..." << std::endl;
 
@@ -123,16 +123,16 @@ namespace KeyVault {
         }
         std::cerr << "    -> [chen VAULT]: Returning struct (Danger Zone)..." << std::endl;
 
-        return chenInitialArguments(k1, k2, k3, t, x, y, z);
+        return chenInitialArguments<double>(k1, k2, k3, t, x, y, z);
     }
 
-    lorenzInitialArguments getLorenzMasterKeys() {
+    lorenzInitialArguments<double> getLorenzMasterKeys() {
         std::cerr << "    -> [LORENZ VAULT]: Entered function." << std::endl;
         std::ifstream file("engine_keys.txt");
         std::string token;
         
-        float a = 10.0f, b = (8.0f / 3.0f), c = 46.0f, r = 2.0f;
-        float x = 12.0f, y = 0.7194113f, z = 0.8156727f, w = 0.2946892f, step = 0.4389124f; 
+        double a = 10.0f, b = (8.0f / 3.0f), c = 46.0f, r = 2.0f;
+        double x = 12.0f, y = 0.7194113f, z = 0.8156727f, w = 0.2946892f, step = 0.4389124f; 
         int t = 1500;
 
         std::cerr << "    -> [LORENZ VAULT]: Default vars set. Checking file..." << std::endl;
@@ -148,7 +148,7 @@ namespace KeyVault {
         }
         
         std::cerr << "    -> [LORENZ VAULT]: Returning struct (Danger Zone)..." << std::endl;
-        return lorenzInitialArguments(a, b, c, r, x, t, y, z, w, step);
+        return lorenzInitialArguments<double>(a, b, c, r, x, t, y, z, w, step);
     }
 }
 

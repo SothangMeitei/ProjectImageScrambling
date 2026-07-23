@@ -1,33 +1,27 @@
-
-//define all the functions for the chen chaotic stream processing
-
-//according to the engine design we need to have the mapping array of int
-//that is the mapping[index] = new position , that is 
-//for old position = index 
-//new position = mapping[index]
-
 #pragma once
 #include <cstdint>
 
 class chenStreamProcessor {
-    public:
-        struct mappingArrayValue {
-            uint64_t    mantissaChaos;      // The 52-bit chaotic fraction cast to integer
-            int         previousIndex;      // The original spatial index (0 to size-1)
-        };
+public:
+    struct mappingArrayValue {
+        uint64_t mantissaChaos; // 64-bit scaled fractional key (frac * 1e14)
+        int      previousIndex; // Original spatial index (0 to size-1)
+    };
 
-    private:
-        int                     m_size;
-        int*                    m_flatMapping;       // The flat array for the GPU
-        mappingArrayValue*      m_structArray;       // The structural array for sorting
-    private:
-        void _radixSort();
-    public:
-        chenStreamProcessor(int streamSize);
-        ~chenStreamProcessor();
+private:
+    int                m_size;
+    int*               m_flatMapping; // Flat mapping array for GPU
+    mappingArrayValue* m_structArray; // Struct array for Radix sorting
 
-        void ingestRawStream(const float* rawChenStream);
-        void sortAndExtractMapping();
+    void _radixSort();
 
-        int* getGPUFlatMapping() const { return m_flatMapping; }
+public:
+    chenStreamProcessor(int streamSize);
+    ~chenStreamProcessor();
+
+    // Ingests 64-bit double stream from chenChaoticSystem<double>
+    void ingestRawStream(const double* rawChenStream);
+    void sortAndExtractMapping();
+
+    int* getGPUFlatMapping() const { return m_flatMapping; }
 };
