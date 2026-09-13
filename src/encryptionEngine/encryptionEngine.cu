@@ -14,33 +14,24 @@
 
 namespace fs = std::filesystem;
 
-unsigned char* encryptionEngine::chen3DChaoticStream() {
+unsigned char* encryptionEngine::chen3DChaoticStream() { // (Same for decryptionEngine)
     int size = m_streamSize;
     chenChaoticSystem<double> chenSolver(m_chenArguments, size);
     chenSolver.generate();
     chaoticStreamChen<double> rawChen = chenSolver.getChaoticStreams();
-
+    
     chenStreamProcessor permProcessor(size);
-    permProcessor.ingestRawStream(rawChen.x);
+    permProcessor.ingestRawStream(rawChen); // Ingests full struct!
     permProcessor.sortAndExtractMapping();
-
+    
     cudaMalloc((void**)&d_permMap, size * sizeof(int));
     cudaMemcpy(d_permMap, permProcessor.getGPUFlatMapping(), size * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Decimal Fractional Extraction for DNA Rules
-    unsigned char* h_dnaRules = new unsigned char[size];
-    for (int i = 0; i < size; ++i) {
-        double absVal = std::abs(rawChen.y[i]);
-        double frac   = absVal - std::floor(absVal);
-        uint64_t scaled = static_cast<uint64_t>(frac * 281474976710656ULL);
-        h_dnaRules[i] = static_cast<unsigned char>((scaled >> 24) & 0xFF);
-    }
-
+    // Directly copy the processed byte stream from the processor
     unsigned char* d_dnaRulesDevice = nullptr;
     cudaMalloc((void**)&d_dnaRulesDevice, size);
-    cudaMemcpy(d_dnaRulesDevice, h_dnaRules, size, cudaMemcpyHostToDevice);
-    delete[] h_dnaRules;
-
+    cudaMemcpy(d_dnaRulesDevice, permProcessor.getByteStream(), size, cudaMemcpyHostToDevice);
+    
     return d_dnaRulesDevice;
 }
 
@@ -52,7 +43,7 @@ unsigned char* encryptionEngine::lorenz4DHyperChaoticStream() {
     lorenzSolver.generate();
 
     lorenzStreamProcessor mint(requiredIntWords);
-    mint.ingestRawStream(lorenzSolver.getChaoticStream().x);
+    mint.ingestRawStream(lorenzSolver.getChaoticStream());
 
     uint32_t* cpuIntReservoir = mint.getDiffusionValues();
     unsigned char* d_vramByteStream = nullptr;

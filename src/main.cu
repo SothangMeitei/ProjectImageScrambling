@@ -314,6 +314,8 @@ namespace ComputePipeline {
 
 
 int main(int argc, char* argv[]) {
+
+    std::cout<<"new step size and larger distance per point position\n";
     
     SystemConfig config = ConfigManager::initialize(argc, argv);
     if (!config.isValid) return EXIT_FAILURE;

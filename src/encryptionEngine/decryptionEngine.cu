@@ -21,26 +21,16 @@ unsigned char* decryptionEngine::_chen3DChaoticStreamGeneration() {
     chaoticStreamChen<double> rawChen = chenSolver.getChaoticStreams();
 
     chenStreamProcessor permProcessor(size);
-    permProcessor.ingestRawStream(rawChen.x);
+    permProcessor.ingestRawStream(rawChen);
     permProcessor.sortAndExtractMapping();
 
     cudaMalloc((void**)&d_permutationMapping, size * sizeof(int));
     cudaMemcpy(d_permutationMapping, permProcessor.getGPUFlatMapping(), size * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Decimal Fractional Extraction for DNA Rules
-    unsigned char* h_dnaRules = new unsigned char[size];
-    for (int i = 0; i < size; ++i) {
-        double absVal = std::abs(rawChen.y[i]);
-        double frac   = absVal - std::floor(absVal);
-        uint64_t scaled = static_cast<uint64_t>(frac * 1e14);
-        h_dnaRules[i] = static_cast<unsigned char>(scaled % 256);
-    }
-
     unsigned char* d_dnaRulesDevice = nullptr;
     cudaMalloc((void**)&d_dnaRulesDevice, size);
-    cudaMemcpy(d_dnaRulesDevice, h_dnaRules, size, cudaMemcpyHostToDevice);
-    delete[] h_dnaRules;
-
+    cudaMemcpy(d_dnaRulesDevice, permProcessor.getByteStream(), size, cudaMemcpyHostToDevice);
+    
     return d_dnaRulesDevice;
 }
 
@@ -52,7 +42,7 @@ unsigned char* decryptionEngine::_lorenz4DHyperChaoticStreamGeneration() {
     lorenzSolver.generate();
 
     lorenzStreamProcessor mint(requiredIntWords);
-    mint.ingestRawStream(lorenzSolver.getChaoticStream().x);
+    mint.ingestRawStream(lorenzSolver.getChaoticStream());
 
     uint32_t* cpuIntReservoir = mint.getDiffusionValues();
     unsigned char* d_vramByteStream = nullptr;

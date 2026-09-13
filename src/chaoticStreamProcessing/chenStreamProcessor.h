@@ -1,27 +1,27 @@
 #pragma once
 #include <cstdint>
+#include "../chaoticSystems/chenChaoticSystem.h" // Add include
 
 class chenStreamProcessor {
 public:
     struct mappingArrayValue {
-        uint64_t mantissaChaos; // 64-bit scaled fractional key (frac * 1e14)
-        int      previousIndex; // Original spatial index (0 to size-1)
+        uint64_t mantissaChaos; 
+        int      previousIndex; 
     };
-
 private:
     int                m_size;
-    int*               m_flatMapping; // Flat mapping array for GPU
-    mappingArrayValue* m_structArray; // Struct array for Radix sorting
-
+    int*               m_flatMapping; 
+    mappingArrayValue* m_structArray; 
+    unsigned char*     m_byteStream;  // NEW: Aligns with lorenzStreamProcessor's design
     void _radixSort();
-
 public:
     chenStreamProcessor(int streamSize);
     ~chenStreamProcessor();
-
-    // Ingests 64-bit double stream from chenChaoticSystem<double>
-    void ingestRawStream(const double* rawChenStream);
+    
+    // Ingest the full 3D struct
+    void ingestRawStream(const chaoticStreamChen<double>& stream);
     void sortAndExtractMapping();
-
+    
     int* getGPUFlatMapping() const { return m_flatMapping; }
+    unsigned char* getByteStream() const { return m_byteStream; } // NEW: Getter for DNA Rules
 };

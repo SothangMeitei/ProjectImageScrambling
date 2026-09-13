@@ -59,8 +59,8 @@ private:
 public:
     chenChaoticSystem(chenInitialArguments<T> initialArgs, 
                        int requiredChaoticOutputCount, 
-                       T hStep = static_cast<T>(0.00001), 
-                       int decimation = 50)
+                       T hStep = static_cast<T>(0.002), 
+                       int decimation = 100)
         : m_initialArguments(initialArgs),
           m_sizeOfChaoticStream(requiredChaoticOutputCount),
           m_h(hStep),
