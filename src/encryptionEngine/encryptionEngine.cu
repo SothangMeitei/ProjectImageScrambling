@@ -11,6 +11,8 @@
 #include <cuda_runtime.h>
 #include "../kernelCode/kernelsEncrypt.cuh"
 #include <fstream>
+#include <memory>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -144,23 +146,22 @@ void encryptionEngine::exportKeystreams(const std::string& outputDirectory, int 
     try {
         std::string chenPath   = outputDirectory + "/keystream_chen.bin";
         std::string lorenzPath = outputDirectory + "/keystream_lorenz.bin";
-        unsigned char* h_buffer = new unsigned char[size];
+        std::unique_ptr<unsigned char[]> h_buffer(new unsigned char[size]);
 
-        cudaError_t errChen = cudaMemcpy(h_buffer, m_chaoticStreamChen, size, cudaMemcpyDeviceToHost);
+        cudaError_t errChen = cudaMemcpy(h_buffer.get(), m_chaoticStreamChen, size, cudaMemcpyDeviceToHost);
         if (errChen == cudaSuccess) {
             std::ofstream outChen(chenPath, std::ios::binary);
-            outChen.write(reinterpret_cast<char*>(h_buffer), size);
+            outChen.write(reinterpret_cast<char*>(h_buffer.get()), size);
             outChen.close();
         }
 
-        cudaError_t errLorenz = cudaMemcpy(h_buffer, m_chaoticStreamLorenz, size, cudaMemcpyDeviceToHost);
+        cudaError_t errLorenz = cudaMemcpy(h_buffer.get(), m_chaoticStreamLorenz, size, cudaMemcpyDeviceToHost);
         if (errLorenz == cudaSuccess) {
             std::ofstream outLorenz(lorenzPath, std::ios::binary);
-            outLorenz.write(reinterpret_cast<char*>(h_buffer), size);
+            outLorenz.write(reinterpret_cast<char*>(h_buffer.get()), size);
             outLorenz.close();
         }
 
-        delete[] h_buffer;
         std::cout << "      [SYS METRICS] : Processed Keystreams safely exported for NIST analysis." << std::endl;
         already_exported = true;
     } catch (const std::exception& e) {
@@ -172,8 +173,8 @@ std::pair<unsigned char*, unsigned char*> encryptionEngine::encrypt(unsigned cha
     auto check_cuda = [](const std::string& step) {
         cudaError_t err = cudaDeviceSynchronize();
         if (err != cudaSuccess) {
-            std::cerr << "\n[GPU CRASH AT]: " << step << " | " << cudaGetErrorString(err) << "\n";
-            exit(1);
+            std::string errStr = std::string("\n[GPU CRASH AT]: ") + step + " | " + cudaGetErrorString(err) + "\n";
+            throw std::runtime_error(errStr);
         }
     };
 

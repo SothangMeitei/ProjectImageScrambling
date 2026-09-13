@@ -17,6 +17,9 @@ private:
 public:
     chenStreamProcessor(int streamSize);
     ~chenStreamProcessor();
+
+    chenStreamProcessor(const chenStreamProcessor&) = delete;
+    chenStreamProcessor& operator=(const chenStreamProcessor&) = delete;
     
     // Ingest the full 3D struct
     void ingestRawStream(const chaoticStreamChen<double>& stream);

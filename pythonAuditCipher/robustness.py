@@ -51,8 +51,12 @@ class RobustnessAnalyzer:
             # Ensure boundaries are safe
             y_end = min(b.y + b.h, h)
             x_end = min(b.x + b.w, w)
-            attacked[b.y:y_end, b.x:x_end] = 0
+            attacked[max(0, b.y):y_end, max(0, b.x):x_end] = 0
             
+        import os
+        base_dir = os.path.dirname(output_path)
+        if base_dir:
+            os.makedirs(base_dir, exist_ok=True)
         cv2.imwrite(output_path, attacked)
 
     @staticmethod
@@ -65,7 +69,13 @@ class RobustnessAnalyzer:
             attacked[mask_pepper] = [0, 0, 0]
             attacked[mask_salt] = [255, 255, 255]
         else:
-            attacked[mask_pepper] = 0; attacked[mask_salt] = 255
+            attacked[mask_pepper] = 0
+            attacked[mask_salt] = 255
+            
+        import os
+        base_dir = os.path.dirname(output_path)
+        if base_dir:
+            os.makedirs(base_dir, exist_ok=True)
         cv2.imwrite(output_path, attacked)
 
     @staticmethod

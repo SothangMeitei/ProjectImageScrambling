@@ -19,6 +19,13 @@ def generate_uniform_image(filename: str, width: int, height: int, r: int, g: in
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    # Ensure color channels are within valid uint8 range
+    r = max(0, min(255, r))
+    g = max(0, min(255, g))
+    b = max(0, min(255, b))
+    if a is not None:
+        a = max(0, min(255, a))
+        
     # Note: OpenCV's internal memory layout is strictly BGR (Blue, Green, Red).
     # We must format the tuple inversely to match the layout before writing to disk.
     if a is not None:

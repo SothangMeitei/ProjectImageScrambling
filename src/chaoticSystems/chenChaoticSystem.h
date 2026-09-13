@@ -1,6 +1,7 @@
 #pragma once
 #include <stdexcept>
 #include <string>
+#include <cmath>
 #include "vec3.h"
 
 template <typename T = double>
@@ -12,10 +13,10 @@ struct chenInitialArguments {
     chenInitialArguments(T a, T b, T c, int iterationCount, T x, T y, T z)
         : a(a), b(b), c(c), initialIterationCount(iterationCount), x(x), y(y), z(z)
     {
-        if (a != static_cast<T>(35.0)) {
+        if (std::abs(a - static_cast<T>(35.0)) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Chen System Error: Parameter 'a' must be exactly 35 to guarantee a chaotic stream.");
         }
-        if (b != static_cast<T>(3.0)) {
+        if (std::abs(b - static_cast<T>(3.0)) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Chen System Error: Parameter 'b' must be exactly 3 to guarantee a chaotic stream.");
         }
         if (c <= static_cast<T>(20.0) || c >= static_cast<T>(28.4)) {
@@ -76,6 +77,9 @@ public:
         delete[] m_chaoticStreams.y;
         delete[] m_chaoticStreams.z;
     }
+
+    chenChaoticSystem(const chenChaoticSystem&) = delete;
+    chenChaoticSystem& operator=(const chenChaoticSystem&) = delete;
 
     void generate() {
         vec3_t<T> curr {

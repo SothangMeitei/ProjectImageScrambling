@@ -45,6 +45,9 @@ class encryptionEngine{
         encryptionEngine(const imageData& ,const chenInitialArguments<double>& ,const lorenzInitialArguments<double>&);
         ~encryptionEngine();
 
+        encryptionEngine(const encryptionEngine&) = delete;
+        encryptionEngine& operator=(const encryptionEngine&) = delete;
+
         // Now perfectly synchronous and returns BOTH images
         std::pair<unsigned char*, unsigned char*> encrypt(unsigned char* plainTextInputImage, int size);
 

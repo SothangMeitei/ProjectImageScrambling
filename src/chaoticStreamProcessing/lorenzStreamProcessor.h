@@ -9,6 +9,9 @@ private:
 public:
     lorenzStreamProcessor(int pixelCount);
     ~lorenzStreamProcessor();
+
+    lorenzStreamProcessor(const lorenzStreamProcessor&) = delete;
+    lorenzStreamProcessor& operator=(const lorenzStreamProcessor&) = delete;
     
     // Ingest the full 4D struct instead of const double*
     void ingestRawStream(const chaoticStreamLorenz<double>& stream); 

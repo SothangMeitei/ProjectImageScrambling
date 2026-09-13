@@ -11,6 +11,7 @@
 #include <cerrno>
 #include "../kernelCode/kernelsDecrypt.cuh"
 #include "../kernelCode/kernelsEncrypt.cuh"
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -73,16 +74,12 @@ decryptionEngine::decryptionEngine(
     d_permutationMapping = nullptr;
     d_scratch_A = nullptr; d_scratch_B = nullptr;
     d_scratch_C = nullptr; d_scratch_D = nullptr;
-    d_chaoticMask = nullptr;
 
     m_chenChaoticStreamRaw   = _chen3DChaoticStreamGeneration();
     m_lorenzChaoticStreamRaw = _lorenz4DHyperChaoticStreamGeneration();
 
     int size = m_inputImageDataLayout.sizeOfImageFileInByte;
     _allocateDeviceScratchPadData(size);
-
-    cudaMalloc((void**)&d_chaoticMask, size);
-    cudaMemset(d_chaoticMask, 0x00, size);
 }
 
 decryptionEngine::~decryptionEngine() {
@@ -91,7 +88,6 @@ decryptionEngine::~decryptionEngine() {
     if (d_scratch_C) cudaFree(d_scratch_C);
     if (d_scratch_D) cudaFree(d_scratch_D);
     if (d_permutationMapping)     cudaFree(d_permutationMapping);
-    if (d_chaoticMask)            cudaFree(d_chaoticMask);
     if (m_chenChaoticStreamRaw)   cudaFree(m_chenChaoticStreamRaw);
     if (m_lorenzChaoticStreamRaw) cudaFree(m_lorenzChaoticStreamRaw);
 }
@@ -136,8 +132,8 @@ unsigned char* decryptionEngine::decrypt(unsigned char* cipherTextImage, unsigne
     auto check_cuda = [](const std::string& step) {
         cudaError_t err = cudaDeviceSynchronize();
         if (err != cudaSuccess) {
-            std::cerr << "\n[GPU CRASH AT]: " << step << " | " << cudaGetErrorString(err) << "\n";
-            exit(1);
+            std::string errStr = std::string("\n[GPU CRASH AT]: ") + step + " | " + cudaGetErrorString(err) + "\n";
+            throw std::runtime_error(errStr);
         }
     };
 

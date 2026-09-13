@@ -1,6 +1,7 @@
 #pragma once
 #include <stdexcept>
 #include <string>
+#include <cmath>
 #include "vec4.h"
 
 template <typename T = double>
@@ -12,19 +13,19 @@ struct lorenzInitialArguments {
     lorenzInitialArguments(T a, T b, T c, T d, T e, int iterationCount, T x, T y, T z, T w)
         : a(a), b(b), c(c), d(d), e(e), initialIterationCount(iterationCount), x(x), y(y), z(z), w(w)
     {
-        if (a != static_cast<T>(10.0)) {
+        if (std::abs(a - static_cast<T>(10.0)) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Lorenz System Error: Parameter 'a' must be exactly 10.");
         }
-        if (b != static_cast<T>(8.0) / static_cast<T>(3.0)) {
+        if (std::abs(b - (static_cast<T>(8.0) / static_cast<T>(3.0))) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Lorenz System Error: Parameter 'b' must be exactly 8/3.");
         }
-        if (c != static_cast<T>(46.0)) {
+        if (std::abs(c - static_cast<T>(46.0)) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Lorenz System Error: Parameter 'c' must be exactly 46.");
         }
-        if (d != static_cast<T>(2.0)) {
+        if (std::abs(d - static_cast<T>(2.0)) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Lorenz System Error: Parameter 'd' must be exactly 2.");
         }
-        if (e != static_cast<T>(12.0)) {
+        if (std::abs(e - static_cast<T>(12.0)) > static_cast<T>(1e-9)) {
             throw std::invalid_argument("Lorenz System Error: Parameter 'e' must be exactly 12.");
         }
     }
@@ -86,6 +87,9 @@ public:
         delete[] m_chaoticStreams.z;
         delete[] m_chaoticStreams.w;
     }
+
+    lorenzChaoticSystem(const lorenzChaoticSystem&) = delete;
+    lorenzChaoticSystem& operator=(const lorenzChaoticSystem&) = delete;
 
     void generate() {
         vec4_t<T> curr {

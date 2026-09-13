@@ -14,7 +14,6 @@ class decryptionEngine{
         unsigned char* d_scratch_C;
         unsigned char* d_scratch_D;
         int* d_permutationMapping;
-        unsigned char* d_chaoticMask;
 
         imageData   m_inputImageDataLayout;
         chenInitialArguments<double>    m_chenInitialArguments;
@@ -38,6 +37,9 @@ class decryptionEngine{
     public:
         decryptionEngine(const imageData& , const chenInitialArguments<double>& , const lorenzInitialArguments<double>&);
         ~decryptionEngine();
+
+        decryptionEngine(const decryptionEngine&) = delete;
+        decryptionEngine& operator=(const decryptionEngine&) = delete;
 
         // Takes BOTH images synchronously and returns the plain text
         unsigned char* decrypt(unsigned char* cipherTextImage, unsigned char* cipherTextImage1, int size);

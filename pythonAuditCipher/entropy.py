@@ -14,6 +14,9 @@ class EntropyAnalyzer:
     @staticmethod
     def calculate_local(image: np.ndarray, block_size: int = 64) -> float:
         h, w = image.shape[:2]
+        if h < block_size or w < block_size:
+            return 0.0
+            
         entropies = []
         for y in range(0, h - block_size + 1, block_size):
             for x in range(0, w - block_size + 1, block_size):
@@ -24,6 +27,15 @@ class EntropyAnalyzer:
     @staticmethod
     def plot_histograms(plain: np.ndarray, cipher: np.ndarray, output_path: str):
         """Plots the pixel intensity distribution of plain vs cipher."""
+        import os
+        output_path = os.path.abspath(output_path)
+        base_dir = os.path.dirname(output_path)
+        base_name = os.path.basename(output_path)
+        if base_name.endswith(".png.png"):
+            output_path = os.path.join(base_dir, base_name[:-4])
+        if base_dir:
+            os.makedirs(base_dir, exist_ok=True)
+            
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
         
         ax1.hist(plain.flatten(), bins=256, range=(0, 256), color='blue', alpha=0.7)
@@ -35,5 +47,14 @@ class EntropyAnalyzer:
         ax2.set_xlim([0, 256])
         
         plt.tight_layout()
-        plt.savefig(output_path)
-        plt.close()
+        try:
+            if os.path.exists(output_path):
+                try:
+                    os.remove(output_path)
+                except OSError:
+                    pass
+            plt.savefig(output_path)
+        except Exception as e:
+            print(f"[WARNING]: Could not save histogram {os.path.basename(output_path)}: {e}")
+        finally:
+            plt.close(fig)

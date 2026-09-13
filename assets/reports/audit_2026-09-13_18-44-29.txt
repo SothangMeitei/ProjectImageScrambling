@@ -1,0 +1,52 @@
+============================================================
+  DNA CIPHER SECURITY AUDIT REPORT
+  Generated : 2026-09-13 18:44:29
+  Frames    : 10
+  Target    : 1920x1080
+============================================================
+
+============================================================
+  KEY SENSITIVITY TEST  (Avalanche Effect on Keys)
+  Key Tweak: Chen x0 += 0.000001
+  Expected : NPCR > 99.6% | UACI ~ 33.4%
+============================================================
+  File                       NPCR       UACI
+  --------------------------------------------
+  frame_0.png            99.6107%   33.4596%
+  frame_1.png            99.6087%   33.4477%
+  frame_2.png            99.6085%   33.4581%
+  frame_3.png            99.6081%   33.4559%
+  frame_4.png            99.5909%   33.4719%
+  frame_5.png            99.5909%   33.4650%
+  frame_6.png            99.6083%   33.4574%
+  frame_7.png            99.6094%   33.4475%
+  frame_8.png            99.6092%   33.4709%
+  frame_9.png            99.6041%   33.4610%
+  --------------------------------------------
+  AVERAGE                99.6049%   33.4595%
+
+============================================================
+  PER-FRAME STRUCTURAL AUDIT
+============================================================
+
+  [ frame_0.png ]
+  Global Entropy              : 7.99996 / 8.0
+  Local Entropy               : 7.98489
+  Correlation (H) Plain|Cipher:  0.98394 |  0.00168
+  Correlation (V) Plain|Cipher:  0.96172 | -0.02740
+  Correlation (D) Plain|Cipher:  0.95749 |  0.00491
+  Differential NPCR (50-bit)  : 0.4526%
+  Differential UACI (50-bit)  : 0.0592%
+  Differential NPCR (1-bit)   : 0.0131%
+  Differential UACI (1-bit)   : 0.0003%
+
+  [ frame_1.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98497
+  Correlation (H) Plain|Cipher:  0.93226 |  0.00734
+  Correlation (V) Plain|Cipher:  0.89602 | -0.03291
+  Correlation (D) Plain|Cipher:  0.87183 | -0.00071
+  Differential NPCR (50-bit)  : 0.4408%
+  Differential UACI (50-bit)  : 0.0588%
+  Differential NPCR (1-bit)   : 0.0110%
+  Differential UACI (1-bit)   : 0.0003%

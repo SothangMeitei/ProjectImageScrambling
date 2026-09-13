@@ -76,5 +76,10 @@ void chenStreamProcessor::_radixSort() {
         }
         std::swap(input_array, ping_pong_buffer);
     }
-    delete[] ping_pong_buffer;
+    if (input_array != m_structArray) {
+        std::memcpy(m_structArray, input_array, m_size * sizeof(mappingArrayValue));
+        delete[] input_array;
+    } else {
+        delete[] ping_pong_buffer;
+    }
 }

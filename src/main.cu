@@ -105,8 +105,8 @@ namespace KeyVault {
         std::string token;
         
         // MATHEMATICALLY STABLE DEFAULTS
-        double k1 = 35.0f, k2 = 3.0f, k3 = 28.0f;
-        double x = 0.1234567f, y = 0.5432198f, z = 0.9876543f; 
+        double k1 = 35.0, k2 = 3.0, k3 = 28.0;
+        double x = 0.1234567, y = 0.5432198, z = 0.9876543; 
         int t = 1000;
         std::cerr << "    -> [chen VAULT]: Default vars set. Checking file..." << std::endl;
 
@@ -131,8 +131,8 @@ namespace KeyVault {
         std::ifstream file("engine_keys.txt");
         std::string token;
         
-        double a = 10.0f, b = (8.0f / 3.0f), c = 46.0f, r = 2.0f;
-        double x = 12.0f, y = 0.7194113f, z = 0.8156727f, w = 0.2946892f, step = 0.4389124f; 
+        double a = 10.0, b = (8.0 / 3.0), c = 46.0, r = 2.0;
+        double x = 12.0, y = 0.7194113, z = 0.8156727, w = 0.2946892, step = 0.4389124; 
         int t = 1500;
 
         std::cerr << "    -> [LORENZ VAULT]: Default vars set. Checking file..." << std::endl;

@@ -6,20 +6,24 @@ import cv2
 import random
 import numpy as np 
 import shutil
+from datetime import datetime
 from pythonAuditCipher.orchestrator import CipherAuditSuite
-from pythonAuditCipher.robustness import CropConfiguration, CropBox 
+from pythonAuditCipher.robustness import CropConfiguration, RobustnessAnalyzer
 from pythonAuditCipher.differential import DifferentialAnalyzer
-from pythonAuditCipher.NIST_key_stream_test import NISTAnalyzer 
 
 BASE = "assets"
 DIRS = {
     "plain": f"{BASE}/plainText",
     "cipher": f"{BASE}/cipherText",
     "decrypted": f"{BASE}/decryptedCipherText",
+    "zero_entropy": f"{BASE}/test_zero_entropy",
     "diff_src": f"{BASE}/test_differential/diff_src",
     "diff_cipher": f"{BASE}/test_differential/diff_cipher",
+    "diff_src_1bit": f"{BASE}/test_differential/diff_src_1bit",
+    "diff_cipher_1bit": f"{BASE}/test_differential/diff_cipher_1bit",
     "attacks_staged": f"{BASE}/test_robustness/attacks_staged",
-    "attacks_recovered": f"{BASE}/test_robustness/attacks_recovered"
+    "attacks_recovered": f"{BASE}/test_robustness/attacks_recovered",
+    "plots": f"{BASE}/reports/plots"
 }
 
 TARGET_W, TARGET_H = 1920, 1080
@@ -27,14 +31,17 @@ TARGET_W, TARGET_H = 1920, 1080
 def build_architecture():
     for path in DIRS.values(): os.makedirs(path, exist_ok=True)
 
-def generate_zero_entropy_vectors(input_dir: str):
-    """Synthesizes pure uniform images directly into the input pipeline."""
+def generate_zero_entropy_vectors():
+    """Synthesizes pure uniform images into an isolated test folder (not plainText)."""
     print("\n[BOOT]: Synthesizing Zero-Entropy Test Vectors...")
-    black_path = os.path.join(input_dir, "test_00_pure_black.png")
-    white_path = os.path.join(input_dir, "test_01_pure_white.png")
+    os.makedirs(DIRS['zero_entropy'], exist_ok=True)
+    black_path = os.path.join(DIRS['zero_entropy'], "pure_black.png")
+    white_path = os.path.join(DIRS['zero_entropy'], "pure_white.png")
     
-    cv2.imwrite(black_path, np.full((TARGET_H, TARGET_W, 3), (0, 0, 0), dtype=np.uint8))
-    cv2.imwrite(white_path, np.full((TARGET_H, TARGET_W, 3), (255, 255, 255), dtype=np.uint8))
+    if not os.path.exists(black_path):
+        cv2.imwrite(black_path, np.full((TARGET_H, TARGET_W, 3), (0, 0, 0), dtype=np.uint8))
+    if not os.path.exists(white_path):
+        cv2.imwrite(white_path, np.full((TARGET_H, TARGET_W, 3), (255, 255, 255), dtype=np.uint8))
 
 def standardize_assets():
     plain_files = glob.glob(f"{DIRS['plain']}/*.*")
@@ -44,7 +51,10 @@ def standardize_assets():
         img = cv2.imread(f)
         if img is None: continue
         h, w = img.shape[:2]
-        if h < TARGET_H or w < TARGET_W: os.remove(f); continue
+        if h < TARGET_H or w < TARGET_W: 
+            print(f"[WARNING]: Skipping and deleting {f} - below {TARGET_W}x{TARGET_H}")
+            os.remove(f)
+            continue
         if h > TARGET_H or w > TARGET_W: img = img[0:TARGET_H, 0:TARGET_W]
         new_path = os.path.join(DIRS['plain'], f"frame_{valid_count}.png")
         cv2.imwrite(new_path, img)
@@ -77,9 +87,9 @@ def generate_master_keys(filepath="engine_keys.txt", tweak_chen=False):
         f.write("[LORENZ]\n")
         f.write(f"{lor_a} {lor_b} {lor_c} {lor_r} {lor_x} 500000 {lor_y} {lor_z} {lor_w} 0.4389124\n")
 
-def run_key_sensitivity_test(plain_files):
+def run_key_sensitivity_test(plain_files, report):
     """Runs the C++ engine twice to test Avalanche effect and restores output layout."""
-    print("\n[HOST]: Executing Key Sensitivity Test (Avalanche on Keys)...")
+    print("[PIPELINE]: Running Key Sensitivity Test...")
     
     write_cpp_config("encrypt", DIRS['plain'], DIRS['cipher'])
     generate_master_keys("engine_keys.txt", tweak_chen=False)
@@ -89,147 +99,222 @@ def run_key_sensitivity_test(plain_files):
     if os.path.exists(base_backup_dir): shutil.rmtree(base_backup_dir)
     shutil.copytree(DIRS['cipher'], base_backup_dir)
     
-    generate_master_keys("engine_keys.txt", tweak_chen=True)
-    run_cpp_engine("encrypt") 
+    # [CRITICAL FIX]: Delete old cipherText files to guarantee Windows doesn't block overwriting
+    shutil.rmtree(DIRS['cipher'], ignore_errors=True)
+    os.makedirs(DIRS['cipher'], exist_ok=True)
     
-    print("\n=== KEY SENSITIVITY TEST RESULTS ===")
-    for plain_path in plain_files:
-        filename = os.path.basename(plain_path)
-        img_base = cv2.imread(os.path.join(base_backup_dir, filename))
-        img_mutated = cv2.imread(os.path.join(DIRS['cipher'], filename))
+    try:
+        generate_master_keys("engine_keys.txt", tweak_chen=True)
+        run_cpp_engine("encrypt") 
         
-        if img_base is not None and img_mutated is not None:
-            npcr = DifferentialAnalyzer.calculate_npcr(img_base, img_mutated)
-            uaci = DifferentialAnalyzer.calculate_uaci(img_base, img_mutated)
-            print(f"File: {filename} | NPCR: {npcr:.4f}% | UACI: {uaci:.4f}%")
-
-    shutil.rmtree(DIRS['cipher'])
-    os.rename(base_backup_dir, DIRS['cipher'])
-    generate_master_keys("engine_keys.txt", tweak_chen=False) 
-    print("  -> Baseline architecture restored. Continuing pipeline...")
+        report.write("=" * 60 + "\n")
+        report.write("  KEY SENSITIVITY TEST  (Avalanche Effect on Keys)\n")
+        report.write("  Key Tweak: Chen x0 += 0.000001\n")
+        report.write("  Expected : NPCR > 99.6% | UACI ~ 33.4%\n")
+        report.write("=" * 60 + "\n")
+        report.write(f"  {'File':<20} {'NPCR':>10} {'UACI':>10}\n")
+        report.write("  " + "-" * 44 + "\n")
+        
+        npcr_vals, uaci_vals = [], []
+        for plain_path in plain_files:
+            filename = os.path.basename(plain_path)
+            img_base    = cv2.imread(os.path.join(base_backup_dir, filename))
+            img_mutated = cv2.imread(os.path.join(DIRS['cipher'], filename))
+            if img_base is not None and img_mutated is not None:
+                npcr = DifferentialAnalyzer.calculate_npcr(img_base, img_mutated)
+                uaci = DifferentialAnalyzer.calculate_uaci(img_base, img_mutated)
+                npcr_vals.append(npcr)
+                uaci_vals.append(uaci)
+                report.write(f"  {filename:<20} {npcr:>9.4f}% {uaci:>9.4f}%\n")
+        
+        if npcr_vals:
+            report.write("  " + "-" * 44 + "\n")
+            report.write(f"  {'AVERAGE':<20} {sum(npcr_vals)/len(npcr_vals):>9.4f}% {sum(uaci_vals)/len(uaci_vals):>9.4f}%\n")
+        report.write("\n")
+        
+    finally:
+        shutil.rmtree(DIRS['cipher'], ignore_errors=True)
+        os.rename(base_backup_dir, DIRS['cipher'])
+        generate_master_keys("engine_keys.txt", tweak_chen=False) 
+        print("[PIPELINE]: Baseline architecture restored.")
 
 def main():
     print("[BOOT]: Initializing Automated Cipher Master Controller...")
     build_architecture()
 
-    generate_zero_entropy_vectors(DIRS['plain'])
+    generate_zero_entropy_vectors()
 
     if not standardize_assets():
         sys.exit(0)
 
     plain_files = sorted(glob.glob(f"{DIRS['plain']}/*.png"))
 
+    # --- Prepare diff source vectors (only written once, never overwritten) ---
     FLIPS_PER_IMAGE = 50
     for plain_path in plain_files:
-        diff_path = os.path.join(DIRS['diff_src'], os.path.basename(plain_path))
+        diff_path       = os.path.join(DIRS['diff_src'],       os.path.basename(plain_path))
+        diff_path_1bit  = os.path.join(DIRS['diff_src_1bit'],  os.path.basename(plain_path))
+        
         if not os.path.exists(diff_path):
             img = cv2.imread(plain_path)
-            h, w, c = img.shape
-            
-            for _ in range(FLIPS_PER_IMAGE):
-                rx = random.randint(0, w - 1)
-                ry = random.randint(0, h - 1)
-                rc = random.randint(0, c - 1)
-                bit_pos = random.randint(0, 7)
-                img[ry, rx, rc] ^= (1 << bit_pos) 
+            if img is not None:
+                h, w, c = img.shape
+                for _ in range(FLIPS_PER_IMAGE):
+                    img[random.randint(0, h-1), random.randint(0, w-1), random.randint(0, c-1)] ^= (1 << random.randint(0, 7))
+                cv2.imwrite(diff_path, img)
                 
-            cv2.imwrite(diff_path, img)
+        if not os.path.exists(diff_path_1bit):
+            img = cv2.imread(plain_path)
+            if img is not None:
+                h, w, c = img.shape
+                img[random.randint(0, h-1), random.randint(0, w-1), random.randint(0, c-1)] ^= (1 << random.randint(0, 7))
+                cv2.imwrite(diff_path_1bit, img)
 
-    # 2. RUN ENCRYPTION & KEY SENSITIVITY TEST
-    run_key_sensitivity_test(plain_files)
-
-    # ==========================================
-    # 3. DEDICATED NIST RANDOMNESS AUDIT BLOCK
-    # ==========================================
-    print("\n[HOST]: Starting Centralized NIST SP 800-22 Randomness Audits...")
+    # --- Open the report file ---
+    os.makedirs(f"{BASE}/reports", exist_ok=True)
+    timestamp  = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    report_path = f"{BASE}/reports/audit_{timestamp}.txt"
     
-    # Audit A: The Mathematical Engine
-    chen_bin_stream = os.path.join(DIRS['cipher'], "keystream_chen.bin")
-    lorenz_bin_stream = os.path.join(DIRS['cipher'], "keystream_lorenz.bin")
-    NISTAnalyzer.run_suite_from_bin(chen_bin_stream)
-    NISTAnalyzer.run_suite_from_bin(lorenz_bin_stream)
+    with open(report_path, "w", encoding="utf-8") as report:
+        report.write("=" * 60 + "\n")
+        report.write("  DNA CIPHER SECURITY AUDIT REPORT\n")
+        report.write(f"  Generated : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        report.write(f"  Frames    : {len(plain_files)}\n")
+        report.write(f"  Target    : {TARGET_W}x{TARGET_H}\n")
+        report.write("=" * 60 + "\n\n")
 
-    # Audit B: The GPU Output Space (Single Ultimate Stress Test)
-    target_cipher_image = os.path.join(DIRS['cipher'], "test_00_pure_black.png")
-    if not os.path.exists(target_cipher_image) and plain_files:
-        target_cipher_image = os.path.join(DIRS['cipher'], os.path.basename(plain_files[0]))
+        # 1. KEY SENSITIVITY TEST
+        run_key_sensitivity_test(plain_files, report)
+
+        # 2. DIFFERENTIAL CRYPTANALYSIS
+        print("[PIPELINE]: Running Differential Cryptanalysis (50-bit flip)...")
+        shutil.rmtree(DIRS['diff_cipher'], ignore_errors=True)
+        os.makedirs(DIRS['diff_cipher'], exist_ok=True)
+        write_cpp_config("encrypt", DIRS['diff_src'], DIRS['diff_cipher'])
+        run_cpp_engine("encrypt")
         
-    if os.path.exists(target_cipher_image):
-        print(f"\n[HOST]: Running NIST Suite on representative ciphertext: {os.path.basename(target_cipher_image)}")
-        img = cv2.imread(target_cipher_image)
-        NISTAnalyzer.run_suite(img)
+        print("[PIPELINE]: Running Differential Cryptanalysis (1-bit flip)...")
+        shutil.rmtree(DIRS['diff_cipher_1bit'], ignore_errors=True)
+        os.makedirs(DIRS['diff_cipher_1bit'], exist_ok=True)
+        write_cpp_config("encrypt", DIRS['diff_src_1bit'], DIRS['diff_cipher_1bit'])
+        run_cpp_engine("encrypt")
 
-    # Continue standard execution pathways
-    write_cpp_config("encrypt", DIRS['diff_src'], DIRS['diff_cipher'])
-    run_cpp_engine("encrypt")
+        # 3. BASELINE DECRYPTION
+        print("[PIPELINE]: Running Baseline Decryption...")
+        shutil.rmtree(DIRS['decrypted'], ignore_errors=True)
+        os.makedirs(DIRS['decrypted'], exist_ok=True)
+        shutil.rmtree(DIRS['attacks_recovered'], ignore_errors=True)
+        os.makedirs(DIRS['attacks_recovered'], exist_ok=True)
+        write_cpp_config("decrypt", DIRS['cipher'], DIRS['decrypted'])
+        run_cpp_engine("decrypt")
 
-    # 4. RUN BASELINE DECRYPTION
-    write_cpp_config("decrypt", DIRS['cipher'], DIRS['decrypted'])
-    run_cpp_engine("decrypt")
+        # 4. PER-FRAME STRUCTURAL AUDIT
+        print("[PIPELINE]: Running Structural Cryptographic Audit...")
+        random_crop_config = CropConfiguration(mode="random", num_boxes=15, size_range=(20, 150))
+        shutil.rmtree(DIRS['attacks_staged'], ignore_errors=True)
+        os.makedirs(DIRS['attacks_staged'], exist_ok=True)
 
-    # 5. RUN STANDARD METRICS AUDIT & STAGE ATTACKS
-    print("\n[HOST]: Beginning Structural Cryptographic Audit...")
-    
-    random_crop_config = CropConfiguration(mode="random", num_boxes=15, size_range=(20, 150))
-    active_crop_config = random_crop_config 
+        def safe_copy(src, dst):
+            try:
+                if os.path.exists(dst):
+                    os.remove(dst)
+            except OSError:
+                pass
+            with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+                shutil.copyfileobj(fsrc, fdst)
 
-    for idx, plain_path in enumerate(plain_files):
-        filename = os.path.basename(plain_path)
-        
-        cipher_path = os.path.join(DIRS['cipher'], filename)
-        diff_cipher_path = os.path.join(DIRS['diff_cipher'], filename)
-        
-        if not os.path.exists(cipher_path): continue
+        report.write("=" * 60 + "\n")
+        report.write("  PER-FRAME STRUCTURAL AUDIT\n")
+        report.write("=" * 60 + "\n")
 
-        suite = CipherAuditSuite(plain_path, cipher_path)
-        print(f"\n=== AUDITING: {filename} ===")
-        
-        suite.run_entropy_audit(plot_out=f"{BASE}/histogram_{filename}.png")
-        suite.run_correlation_audit(plot_out=f"{BASE}/correlation_{filename}.png")
-        suite.run_differential_audit(diff_cipher_path)
-        
-        # NOTE: suite.run_nist_image_audit() has been successfully removed from this loop.
+        for plain_path in plain_files:
+            filename            = os.path.basename(plain_path)
+            cipher_path         = os.path.join(DIRS['cipher'],         filename)
+            diff_cipher_path    = os.path.join(DIRS['diff_cipher'],     filename)
+            diff_cipher_1bit    = os.path.join(DIRS['diff_cipher_1bit'],filename)
+            
+            if not os.path.exists(cipher_path):
+                continue
 
-        crop_target = os.path.join(DIRS['attacks_staged'], f"crop_{filename}")
-        noise_target = os.path.join(DIRS['attacks_staged'], f"noise_{filename}")
-        
-        from pythonAuditCipher.robustness import RobustnessAnalyzer
-        RobustnessAnalyzer.stage_advanced_cropping(suite.cipher, active_crop_config, crop_target)
-        RobustnessAnalyzer.stage_noise_attack(suite.cipher, noise_target, density=0.05)
+            suite = CipherAuditSuite(plain_path, cipher_path)
+            plot_stem = os.path.splitext(filename)[0]
 
-        aux_src = os.path.join(DIRS['cipher'], f"aux_{filename}")
-        if os.path.exists(aux_src):
-            shutil.copy2(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_crop_{filename}"))
-            shutil.copy2(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_noise_{filename}"))
+            # --- Entropy ---
+            g_ent = suite.run_entropy_audit(
+                plot_out=os.path.join(DIRS['plots'], f"histogram_{plot_stem}.png"),
+                silent=True
+            )
+            l_ent = suite._last_local_entropy
 
-    # 6. RUN ROBUSTNESS DECRYPTION
-    write_cpp_config("decrypt", DIRS['attacks_staged'], DIRS['attacks_recovered'])
-    run_cpp_engine("decrypt")
+            # --- Correlation ---
+            corr = suite.run_correlation_audit(
+                plot_out=os.path.join(DIRS['plots'], f"{plot_stem}.png"),
+                silent=True
+            )
 
-    # SYNC BRIDGE
-    staged_files = sorted(glob.glob(f"{DIRS['attacks_staged']}/*.png"))
-    recovered_files = glob.glob(f"{DIRS['attacks_recovered']}/decrypted_frame_*.png")
-    recovered_files.sort(key=lambda x: int(os.path.splitext(x)[0].split('_')[-1]))
+            # --- Differential ---
+            npcr_50, uaci_50   = None, None
+            npcr_1,  uaci_1    = None, None
+            if os.path.exists(diff_cipher_path):
+                npcr_50 = DifferentialAnalyzer.calculate_npcr(suite.cipher, cv2.imread(diff_cipher_path))
+                uaci_50 = DifferentialAnalyzer.calculate_uaci(suite.cipher, cv2.imread(diff_cipher_path))
+            if os.path.exists(diff_cipher_1bit):
+                npcr_1  = DifferentialAnalyzer.calculate_npcr(suite.cipher, cv2.imread(diff_cipher_1bit))
+                uaci_1  = DifferentialAnalyzer.calculate_uaci(suite.cipher, cv2.imread(diff_cipher_1bit))
 
-    for staged, rec in zip(staged_files, recovered_files):
-        target_name = os.path.join(DIRS['attacks_recovered'], f"decrypted_{os.path.basename(staged)}")
-        if os.path.exists(rec): os.replace(rec, target_name)
+            # --- Write to report ---
+            report.write(f"\n  [ {filename} ]\n")
+            report.write(f"  {'Global Entropy':<28}: {g_ent:.5f} / 8.0\n")
+            report.write(f"  {'Local Entropy':<28}: {l_ent:.5f}\n")
+            report.write(f"  {'Correlation (H) Plain|Cipher':<28}: {corr['h_plain']:8.5f} | {corr['h_cipher']:8.5f}\n")
+            report.write(f"  {'Correlation (V) Plain|Cipher':<28}: {corr['v_plain']:8.5f} | {corr['v_cipher']:8.5f}\n")
+            report.write(f"  {'Correlation (D) Plain|Cipher':<28}: {corr['d_plain']:8.5f} | {corr['d_cipher']:8.5f}\n")
+            if npcr_50 is not None:
+                report.write(f"  {'Differential NPCR (50-bit)':<28}: {npcr_50:.4f}%\n")
+                report.write(f"  {'Differential UACI (50-bit)':<28}: {uaci_50:.4f}%\n")
+            if npcr_1 is not None:
+                report.write(f"  {'Differential NPCR (1-bit)':<28}: {npcr_1:.4f}%\n")
+                report.write(f"  {'Differential UACI (1-bit)':<28}: {uaci_1:.4f}%\n")
 
-    # 7. EVALUATE RECOVERY
-    print("\n[HOST]: Evaluating Cipher Robustness & Fault Tolerance...")
-    for plain_path in plain_files:
-        filename = os.path.basename(plain_path)
-        rec_crop = os.path.join(DIRS['attacks_recovered'], f"decrypted_crop_{filename}")
-        rec_noise = os.path.join(DIRS['attacks_recovered'], f"decrypted_noise_{filename}")
-        
-        cipher_path = os.path.join(DIRS['cipher'], filename)
-        
-        if os.path.exists(rec_crop) and os.path.exists(rec_noise):
-            suite = CipherAuditSuite(plain_path, cipher_path) 
-            print(f"\n=== RECOVERY SCORES FOR: {filename} ===")
-            suite.verify_recovery(rec_crop, rec_noise)
+            # --- Stage attacks ---
+            crop_target  = os.path.join(DIRS['attacks_staged'], f"crop_{filename}")
+            noise_target = os.path.join(DIRS['attacks_staged'], f"noise_{filename}")
+            RobustnessAnalyzer.stage_advanced_cropping(suite.cipher, random_crop_config, crop_target)
+            RobustnessAnalyzer.stage_noise_attack(suite.cipher, noise_target, density=0.05)
+            aux_src = os.path.join(DIRS['cipher'], f"aux_{filename}")
+            if os.path.exists(aux_src):
+                safe_copy(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_crop_{filename}"))
+                safe_copy(aux_src, os.path.join(DIRS['attacks_staged'], f"aux_noise_{filename}"))
 
-    print("\n[SUCCESS]: Automated Pipeline Complete.")
+        # 5. ROBUSTNESS (ATTACK RECOVERY)
+        print("[PIPELINE]: Running Robustness Attack Recovery...")
+        write_cpp_config("decrypt", DIRS['attacks_staged'], DIRS['attacks_recovered'])
+        run_cpp_engine("decrypt")
+
+        report.write("\n" + "=" * 60 + "\n")
+        report.write("  ROBUSTNESS & FAULT TOLERANCE\n")
+        report.write("=" * 60 + "\n")
+
+        for plain_path in plain_files:
+            filename  = os.path.basename(plain_path)
+            rec_crop  = os.path.join(DIRS['attacks_recovered'], f"crop_{filename}")
+            rec_noise = os.path.join(DIRS['attacks_recovered'], f"noise_{filename}")
+            if os.path.exists(rec_crop) and os.path.exists(rec_noise):
+                cipher_path = os.path.join(DIRS['cipher'], filename)
+                suite = CipherAuditSuite(plain_path, cipher_path)
+                psnr_c, ssim_c = RobustnessAnalyzer.evaluate_quality(suite.plain, cv2.imread(rec_crop))
+                psnr_n, ssim_n = RobustnessAnalyzer.evaluate_quality(suite.plain, cv2.imread(rec_noise))
+                report.write(f"\n  [ {filename} ]\n")
+                report.write(f"  {'Crop Attack  PSNR':<28}: {psnr_c:5.2f} dB\n")
+                report.write(f"  {'Crop Attack  SSIM':<28}: {ssim_c:.4f}\n")
+                report.write(f"  {'Noise Attack PSNR':<28}: {psnr_n:5.2f} dB\n")
+                report.write(f"  {'Noise Attack SSIM':<28}: {ssim_n:.4f}\n")
+
+        report.write("\n" + "=" * 60 + "\n")
+        report.write("  END OF REPORT\n")
+        report.write("=" * 60 + "\n")
+
+    print(f"\n[SUCCESS]: Audit complete. Report saved to -> '{report_path}'")
 
 if __name__ == "__main__":
-    main()
+    main()
