@@ -123,6 +123,30 @@ unsigned char* encryptionEngine::_LaunchPixelDiffusion(unsigned char* d_data, un
     return d_data;
 }
 
+unsigned char* encryptionEngine::_LaunchPixelDiffusion2D(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
+    int threadsPerBlock = 256;
+    int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksRow = (height + threadsPerBlock - 1) / threadsPerBlock;
+
+    // Pass 1: Column Top-to-Bottom
+    _diffuseColumnTopToBottomKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    // Pass 2: Row Left-to-Right
+    _diffuseRowLeftToRightKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    // Pass 3: Column Bottom-to-Top
+    _diffuseColumnBottomToTopKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    // Pass 4: Row Right-to-Left
+    _diffuseRowRightToLeftKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    return d_data;
+}
+
 unsigned char* encryptionEngine::_LaunchDNAEncoding(unsigned char* input, unsigned char* keyStream, unsigned char* output, int size) {
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
@@ -194,11 +218,11 @@ std::pair<unsigned char*, unsigned char*> encryptionEngine::encrypt(unsigned cha
     int w_ch = m_referenceFormat.width * m_referenceFormat.channels;
     int h    = m_referenceFormat.height;
 
-    unsigned char* diffMSB = _LaunchPixelDiffusion(permMSB, m_chaoticStreamLorenz, w_ch, h);
-    check_cuda("Pixel Diffusion Kernel (MSB)");
+    unsigned char* diffMSB = _LaunchPixelDiffusion2D(permMSB, m_chaoticStreamLorenz, w_ch, h);
+    check_cuda("Pixel Diffusion 2D Kernel (MSB)");
 
-    unsigned char* diffLSB = _LaunchPixelDiffusion(permLSB, m_chaoticStreamChen, w_ch, h);
-    check_cuda("Pixel Diffusion Kernel (LSB)");
+    unsigned char* diffLSB = _LaunchPixelDiffusion2D(permLSB, m_chaoticStreamChen, w_ch, h);
+    check_cuda("Pixel Diffusion 2D Kernel (LSB)");
 
     unsigned char* dnaMSB = _LaunchDNAEncoding(diffMSB, m_chaoticStreamChen, d_scratchA, size);
     check_cuda("DNA Encoding Kernel (MSB)");

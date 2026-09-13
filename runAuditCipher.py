@@ -149,26 +149,30 @@ def main():
 
     plain_files = sorted(glob.glob(f"{DIRS['plain']}/*.png"))
 
-    # --- Prepare diff source vectors (only written once, never overwritten) ---
+    # --- Prepare diff source vectors freshly from current plainText ---
+    shutil.rmtree(DIRS['diff_src'], ignore_errors=True)
+    os.makedirs(DIRS['diff_src'], exist_ok=True)
+    shutil.rmtree(DIRS['diff_src_1bit'], ignore_errors=True)
+    os.makedirs(DIRS['diff_src_1bit'], exist_ok=True)
+
     FLIPS_PER_IMAGE = 50
     for plain_path in plain_files:
         diff_path       = os.path.join(DIRS['diff_src'],       os.path.basename(plain_path))
         diff_path_1bit  = os.path.join(DIRS['diff_src_1bit'],  os.path.basename(plain_path))
         
-        if not os.path.exists(diff_path):
-            img = cv2.imread(plain_path)
-            if img is not None:
-                h, w, c = img.shape
-                for _ in range(FLIPS_PER_IMAGE):
-                    img[random.randint(0, h-1), random.randint(0, w-1), random.randint(0, c-1)] ^= (1 << random.randint(0, 7))
-                cv2.imwrite(diff_path, img)
-                
-        if not os.path.exists(diff_path_1bit):
-            img = cv2.imread(plain_path)
-            if img is not None:
-                h, w, c = img.shape
-                img[random.randint(0, h-1), random.randint(0, w-1), random.randint(0, c-1)] ^= (1 << random.randint(0, 7))
-                cv2.imwrite(diff_path_1bit, img)
+        img = cv2.imread(plain_path)
+        if img is not None:
+            h, w, c = img.shape
+            # 50-bit flips
+            img_50 = img.copy()
+            for _ in range(FLIPS_PER_IMAGE):
+                img_50[random.randint(0, h-1), random.randint(0, w-1), random.randint(0, c-1)] ^= (1 << random.randint(0, 7))
+            cv2.imwrite(diff_path, img_50)
+            
+            # 1-bit flip
+            img_1 = img.copy()
+            img_1[random.randint(0, h-1), random.randint(0, w-1), random.randint(0, c-1)] ^= (1 << random.randint(0, 7))
+            cv2.imwrite(diff_path_1bit, img_1)
 
     # --- Open the report file ---
     os.makedirs(f"{BASE}/reports", exist_ok=True)

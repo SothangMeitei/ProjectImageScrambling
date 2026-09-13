@@ -37,6 +37,7 @@ class encryptionEngine{
         std::pair<unsigned char* , unsigned char*> _LaunchBitReplace(unsigned char* ,unsigned char* , unsigned char*,  int);
         unsigned char* _LaunchPixelPermute(unsigned char* , unsigned char* , int* , int);
         unsigned char* _LaunchPixelDiffusion(unsigned char* , unsigned char* , int  ,int);
+        unsigned char* _LaunchPixelDiffusion2D(unsigned char* , unsigned char* , int  ,int);
         unsigned char* _LaunchDNAEncoding(unsigned char* , unsigned char* , unsigned char* ,int);
         unsigned char* _LaunchPerformDNAOperation(unsigned char* , unsigned char* , unsigned char* ,int);
         unsigned char* _LauchImageMerginZip(unsigned char*, unsigned char*, unsigned char* , int);

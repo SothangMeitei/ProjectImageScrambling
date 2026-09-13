@@ -29,6 +29,10 @@ __global__ void _reversePermutationKernel(unsigned char* input , int* permutatio
         output[index] = input[permutationMap[index]];
     }
 }
+__device__ __forceinline__ unsigned char rotr8(unsigned char val, int r) {
+    return (val >> r) | (val << (8 - r));
+}
+
 __global__ void _reverseDiffusionKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height) {
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     if (col >= width) return;
@@ -37,15 +41,91 @@ __global__ void _reverseDiffusionKernel(unsigned char* data, unsigned char* chao
     unsigned char prev_cipher = chaoticStream[col]; 
 
     for (int row = 0; row < height; ++row) {
-        long long idx = row * width + col;
+        long long idx = (long long)row * width + col;
         
         unsigned char cipher_text = data[idx];
         unsigned char k = chaoticStream[idx];
 
-        unsigned char plain_text = cipher_text ^ prev_cipher ^ k;
+        unsigned char plain_text = (unsigned char)(rotr8(cipher_text ^ k, 3) - prev_cipher - k);
 
         data[idx] = plain_text;
         prev_cipher = cipher_text; 
+    }
+}
+
+__global__ void _inverseColumnTopToBottomKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height) {
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (col >= width) return;
+
+    unsigned char prev_cipher = chaoticStream[col]; 
+
+    for (int row = 0; row < height; ++row) {
+        long long idx = (long long)row * width + col;
+        
+        unsigned char cipher_text = data[idx];
+        unsigned char k = chaoticStream[idx];
+
+        unsigned char plain_text = (unsigned char)(rotr8(cipher_text ^ k, 3) - prev_cipher - k);
+
+        data[idx] = plain_text;
+        prev_cipher = cipher_text; 
+    }
+}
+
+__global__ void _inverseRowLeftToRightKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height) {
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= height) return;
+
+    unsigned char prev_cipher = chaoticStream[(long long)row * width];
+
+    for (int col = 0; col < width; ++col) {
+        long long idx = (long long)row * width + col;
+
+        unsigned char cipher_text = data[idx];
+        unsigned char k = chaoticStream[idx];
+
+        unsigned char plain_text = (unsigned char)(rotr8(cipher_text ^ k, 3) - prev_cipher - k);
+
+        data[idx] = plain_text;
+        prev_cipher = cipher_text;
+    }
+}
+
+__global__ void _inverseColumnBottomToTopKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height) {
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (col >= width) return;
+
+    unsigned char prev_cipher = chaoticStream[(long long)(height - 1) * width + col];
+
+    for (int row = height - 1; row >= 0; --row) {
+        long long idx = (long long)row * width + col;
+
+        unsigned char cipher_text = data[idx];
+        unsigned char k = chaoticStream[idx];
+
+        unsigned char plain_text = (unsigned char)(rotr8(cipher_text ^ k, 3) - prev_cipher - k);
+
+        data[idx] = plain_text;
+        prev_cipher = cipher_text;
+    }
+}
+
+__global__ void _inverseRowRightToLeftKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height) {
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= height) return;
+
+    unsigned char prev_cipher = chaoticStream[(long long)row * width + (width - 1)];
+
+    for (int col = width - 1; col >= 0; --col) {
+        long long idx = (long long)row * width + col;
+
+        unsigned char cipher_text = data[idx];
+        unsigned char k = chaoticStream[idx];
+
+        unsigned char plain_text = (unsigned char)(rotr8(cipher_text ^ k, 3) - prev_cipher - k);
+
+        data[idx] = plain_text;
+        prev_cipher = cipher_text;
     }
 }
 

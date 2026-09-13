@@ -114,6 +114,30 @@ unsigned char* decryptionEngine::_reverseDiffuse(unsigned char* d_data, unsigned
     return d_data;
 }
 
+unsigned char* decryptionEngine::_reverseDiffuse2D(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
+    int threadsPerBlock = 256;
+    int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksRow = (height + threadsPerBlock - 1) / threadsPerBlock;
+
+    // Reverse Pass 4: Row Right-to-Left (inverse)
+    _inverseRowRightToLeftKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    // Reverse Pass 3: Column Bottom-to-Top (inverse)
+    _inverseColumnBottomToTopKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    // Reverse Pass 2: Row Left-to-Right (inverse)
+    _inverseRowLeftToRightKernel<<<blocksRow, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    // Reverse Pass 1: Column Top-to-Bottom (inverse)
+    _inverseColumnTopToBottomKernel<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+    cudaDeviceSynchronize();
+
+    return d_data;
+}
+
 unsigned char* decryptionEngine::_reverseDNAEncoding(unsigned char* input, unsigned char* ruleKey, unsigned char* output, int size) {
     int blockSize = 256;
     int gridSize = (size + blockSize - 1) / blockSize;
@@ -153,11 +177,11 @@ unsigned char* decryptionEngine::decrypt(unsigned char* cipherTextImage, unsigne
     int w_ch = m_inputImageDataLayout.width * m_inputImageDataLayout.channels;
     int h    = m_inputImageDataLayout.height;
 
-    unsigned char* unDiffuseMSB = _reverseDiffuse(decDNA_MSB, m_lorenzChaoticStreamRaw, w_ch, h);
-    check_cuda("Reverse Diffusion Kernel (MSB)");
+    unsigned char* unDiffuseMSB = _reverseDiffuse2D(decDNA_MSB, m_lorenzChaoticStreamRaw, w_ch, h);
+    check_cuda("Reverse Diffusion 2D Kernel (MSB)");
 
-    unsigned char* unDiffuseLSB = _reverseDiffuse(decDNA_LSB, m_chenChaoticStreamRaw, w_ch, h);
-    check_cuda("Reverse Diffusion Kernel (LSB)");
+    unsigned char* unDiffuseLSB = _reverseDiffuse2D(decDNA_LSB, m_chenChaoticStreamRaw, w_ch, h);
+    check_cuda("Reverse Diffusion 2D Kernel (LSB)");
 
     unsigned char* unPermuteMSB = _reversePermute(unDiffuseMSB, d_permutationMapping, d_scratch_A, size);
     check_cuda("Reverse Permute Kernel (MSB)");

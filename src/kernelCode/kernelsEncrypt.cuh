@@ -12,11 +12,11 @@ __global__ void _diffuseColumnTopToBottomKernel_Encrypt(unsigned char* input, un
 // __device__ char _pixelMix(char byteValue ,char mixingKey);
 // __global__ void _pixelDiffuseKernelByteMixing(unsigned char* input, unsigned char* diffusionKeyStream , unsigned char* output , int size);
 
-// // --- New ARX Bi-Directional Diffusion Kernels ---
-// __global__ void _diffuseColumnTopToBottomKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
-// __global__ void _diffuseColumnBottomToTopKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
-// __global__ void _diffuseRowLeftToRightKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
-// __global__ void _diffuseRowRightToLeftKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
+// --- 2D Bi-Directional Diffusion Kernels ---
+__global__ void _diffuseColumnTopToBottomKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
+__global__ void _diffuseColumnBottomToTopKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
+__global__ void _diffuseRowLeftToRightKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
+__global__ void _diffuseRowRightToLeftKernel(unsigned char* data, unsigned char* chaoticStream, int width, int height);
 
 __device__ int encodeDNA(int binary_val, int rule_index);
 

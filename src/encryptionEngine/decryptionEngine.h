@@ -30,6 +30,7 @@ class decryptionEngine{
         unsigned char* _reverseBitReplacement(unsigned char* input1 , unsigned char* input2 , unsigned char* output , int size);
         unsigned char* _reversePermute(unsigned char* input, int* permutationMap , unsigned char* output , int size);
         unsigned char* _reverseDiffuse(unsigned char* input, unsigned char* diffusionKey ,int width, int height);
+        unsigned char* _reverseDiffuse2D(unsigned char* input, unsigned char* diffusionKey ,int width, int height);
         unsigned char* _reverseDNAEncoding(unsigned char* input, unsigned char* ruleKey , unsigned char* output, int size);
         unsigned char* _reverseDNAOperation(unsigned char* input ,unsigned char* chaoticStream, unsigned char* output, int size);
         unsigned char* _reverseImageZipping(unsigned char* input1 , unsigned char* input2 , unsigned char* output, int size);
