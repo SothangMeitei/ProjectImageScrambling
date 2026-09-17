@@ -38,7 +38,7 @@ __global__ void _reverseDiffusionKernel(unsigned char* data, unsigned char* chao
     if (col >= width) return;
 
     // The exact same seed used in encryption
-    unsigned char prev_cipher = chaoticStream[col]; 
+    unsigned char prev_cipher = chaoticStream[col];
 
     for (int row = 0; row < height; ++row) {
         long long idx = (long long)row * width + col;

@@ -4,5 +4,5 @@ struct imageData{
     int sizeOfImageFileInByte;
     int height;
     int width;
-    int channels;
+    int channels;   //number of channels
 };

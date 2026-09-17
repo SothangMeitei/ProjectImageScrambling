@@ -10,18 +10,20 @@
 
 class encryptionEngine{
     private:
+        //references meta-data for the engine
         int                     m_streamSize;
         imageData               m_referenceFormat;
         chenInitialArguments<double>    m_chenArguments;
         lorenzInitialArguments<double>  m_lorenzArguments;
 
     private:
-        unsigned char * m_chaoticStreamChen;
-        unsigned char * m_chaoticStreamLorenz;
-        int* d_permMap;
+        //just extra values for convience
+        unsigned char   * m_chaoticStreamChen;
+        unsigned char   * m_chaoticStreamLorenz;
+        int             * d_permMap;
 
     private:
-        // --- THE VRAM SCRATCHPAD ARENA ---
+        //vram memory pool
         unsigned char* d_scratchA;
         unsigned char* d_scratchB;
         unsigned char* d_scratchC;
@@ -31,9 +33,11 @@ class encryptionEngine{
         void _reallocateVRAMScratchpadIfNeeded(size_t required_size);
 
     private:
+        //chaotic stream generator
         unsigned char* chen3DChaoticStream();
         unsigned char* lorenz4DHyperChaoticStream();
 
+        //cipher text genrators
         std::pair<unsigned char* , unsigned char*> _LaunchBitReplace(unsigned char* ,unsigned char* , unsigned char*,  int);
         unsigned char* _LaunchPixelPermute(unsigned char* , unsigned char* , int* , int);
         unsigned char* _LaunchPixelDiffusion(unsigned char* , unsigned char* , int  ,int);

@@ -132,7 +132,7 @@ namespace KeyVault {
         std::string token;
         
         double a = 10.0, b = (8.0 / 3.0), c = 46.0, r = 2.0;
-        double x = 12.0, y = 0.7194113, z = 0.8156727, w = 0.2946892, step = 0.4389124; 
+        double x = 12.0, y = 0.7194113, z = 0.8156727, w = 0.2946892, step = 0.4389124;
         int t = 1500;
 
         std::cerr << "    -> [LORENZ VAULT]: Default vars set. Checking file..." << std::endl;
@@ -154,14 +154,18 @@ namespace KeyVault {
 
 namespace ComputePipeline {
 
+    //just return the list of file paths of the target files, that are inside this directory
     std::vector<std::string> _fetchImageTargets(const std::string& directory) {
-        std::vector<std::string> filepaths;
+        std::vector<std::string> filepaths; //the list of file paths, of the input images
+
         for (const auto& entry : fs::directory_iterator(directory)) {
             std::string path = entry.path().string();
+            //to make sure that the file either of the format .png or .jpg
             if (path.find(".png") != std::string::npos || path.find(".jpg") != std::string::npos) {
                 filepaths.push_back(path);
             }
         }
+        //sort the file paths so that there is some order in which files to first process and output
         std::sort(filepaths.begin(), filepaths.end());
         return filepaths;
     }
@@ -176,25 +180,29 @@ namespace ComputePipeline {
         std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Encryption Engine..." << std::endl;
         
         int w = 0, h = 0, c = 0;
+        //this will use the stb image library to get the dimensions of the image file at the 
+        //file path target[0]
         unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
         if(!probe) {
             std::cout << "[FATAL]: Failed to load initial probe image!" << std::endl;
             return;
         }
-        stbi_image_free(probe); 
+        stbi_image_free(probe);
         
         imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
 
-        encryptionEngine* masterEncrypt = nullptr;
+        encryptionEngine* masterEncrypt = nullptr; //make an instance of the encryption engine
+
         try {
             chenInitialArguments cKeys = KeyVault::getChenMasterKeys();
             
             lorenzInitialArguments lKeys = KeyVault::getLorenzMasterKeys();
             
-            masterEncrypt = new encryptionEngine(streamFormat, cKeys, lKeys);
+            masterEncrypt = new encryptionEngine(streamFormat, cKeys, lKeys); //initialize it with the format and the secret key
                         
         } catch (const std::exception& e) {
-            return; // Exit safely instead of crashing Windows!
+            std::cout<<"Failed to initialze the engine, what: "<<e.what()<<std::endl;
+            return;
         }
 
         std::cout << "  -> Engine Initialized successfully!" << std::endl;
@@ -212,22 +220,22 @@ namespace ComputePipeline {
                 continue;
             }
             auto time_io_end = std::chrono::high_resolution_clock::now();
+
             float disk_io_ms = std::chrono::duration<float, std::milli>(time_io_end - time_io_start).count();
 
-            std::cout << "  -> Firing GPU Kernels..." << std::endl;
+            //outputs the main cipher + the other part which is due to the bit slipting
             auto ciphers = masterEncrypt->encrypt(h_frameBytes, streamFormat.sizeOfImageFileInByte);
-            std::cout << "  -> GPU Kernels Complete!" << std::endl;
-
-            std::cout << "  -> Exporting Keystreams..." << std::endl;
             masterEncrypt->exportKeystreams(config.outputDir, streamFormat.sizeOfImageFileInByte);
-            std::cout << "  -> Keystreams Exported!" << std::endl;
+
 
             time_io_start = std::chrono::high_resolution_clock::now();
+            
             std::string main_out = config.outputDir + "/" + original_filename;
             stbi_write_png(main_out.c_str(), w, h, 3, ciphers.first, 0);
 
             std::string aux_out = config.outputDir + "/aux_" + original_filename;
             stbi_write_png(aux_out.c_str(), w, h, 3, ciphers.second, 0);
+            
             time_io_end = std::chrono::high_resolution_clock::now();
             
             disk_io_ms += std::chrono::duration<float, std::milli>(time_io_end - time_io_start).count();
@@ -262,7 +270,7 @@ namespace ComputePipeline {
         int w = 0, h = 0, c = 0;
         unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
         if(!probe) return;
-        stbi_image_free(probe); 
+        stbi_image_free(probe);
         
         imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
 
@@ -272,10 +280,11 @@ namespace ComputePipeline {
             
             lorenzInitialArguments lKeys = KeyVault::getLorenzMasterKeys();
             
-            masterDecrypt = new decryptionEngine(streamFormat, cKeys, lKeys);
+            masterDecrypt = new decryptionEngine(streamFormat, cKeys, lKeys); //create decryption engine instance
                         
         } catch (const std::exception& e) {
-            return; // Exit safely instead of crashing Windows!
+            std::cout<<"Error in making decryption engine instance, what: "<<e.what()<<std::endl;
+            return;
         }
         
         for (const auto& file : targets) {
@@ -284,6 +293,7 @@ namespace ComputePipeline {
             // Skip the auxiliary files during the main loop, we load them manually!
             if (original_filename.find("aux_") == 0) continue;
 
+            //after skipping the auxiliary path just make the auxiliray path form the main path
             std::string aux_filepath = config.inputDir + "/aux_" + original_filename;
 
             unsigned char* main_cipher = stbi_load(file.c_str(), &w, &h, &c, 3);
@@ -315,8 +325,6 @@ namespace ComputePipeline {
 
 int main(int argc, char* argv[]) {
 
-    std::cout<<"new step size and larger distance per point position\n";
-    
     SystemConfig config = ConfigManager::initialize(argc, argv);
     if (!config.isValid) return EXIT_FAILURE;
 

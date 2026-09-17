@@ -26,8 +26,10 @@ unsigned char* encryptionEngine::chen3DChaoticStream() { // (Same for decryption
     permProcessor.ingestRawStream(rawChen); // Ingests full struct!
     permProcessor.sortAndExtractMapping();
     
-    cudaMalloc((void**)&d_permMap, size * sizeof(int));
-    cudaMemcpy(d_permMap, permProcessor.getGPUFlatMapping(), size * sizeof(int), cudaMemcpyHostToDevice);
+    //store this permuatation mapping of the pixels in the gpu
+    
+    cudaMalloc((void**)&d_permMap, size * sizeof(int));//allocate the required memory, and give the handle
+    cudaMemcpy(d_permMap, permProcessor.getGPUFlatMapping(), size * sizeof(int), cudaMemcpyHostToDevice); //move the data form the cpu to the gpu
 
     // Directly copy the processed byte stream from the processor
     unsigned char* d_dnaRulesDevice = nullptr;
@@ -115,13 +117,14 @@ unsigned char* encryptionEngine::_LaunchPixelPermute(unsigned char* input, unsig
     return output;
 }
 
-unsigned char* encryptionEngine::_LaunchPixelDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
-    int threadsPerBlock = 256;
-    int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
-    _diffuseColumnTopToBottomKernel_Encrypt<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
-    cudaDeviceSynchronize();
-    return d_data;
-}
+//this is not requried artifact to show that the original idea did not work properly
+// unsigned char* encryptionEngine::_LaunchPixelDiffusion(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
+//     int threadsPerBlock = 256;
+//     int blocksCol = (width + threadsPerBlock - 1) / threadsPerBlock;
+//     _diffuseColumnTopToBottomKernel_Encrypt<<<blocksCol, threadsPerBlock>>>(d_data, d_chaoticStream, width, height);
+//     cudaDeviceSynchronize();
+//     return d_data;
+// }
 
 unsigned char* encryptionEngine::_LaunchPixelDiffusion2D(unsigned char* d_data, unsigned char* d_chaoticStream, int width, int height) {
     int threadsPerBlock = 256;
