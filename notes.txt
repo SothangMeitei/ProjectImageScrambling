@@ -27,3 +27,8 @@ differential analysis(testing of the avalance effect)                           
 key space and key sensitivity(Tested using the NIIST testing suite)             not done(this but will be some API call)
 choosen plain text attack                                                       not done(this but calling the things that I have done before in the project)
 cropping and noise introduction attack analysis                                 done
+
+
+
+RNG_test.exe stdin -tlmin 1MB -tlmax 6MB < assets\cipherText\keystream_chen.bin
+RNG_test.exe stdin -tlmin 1MB -tlmax 6MB < assets\cipherText\keystream_lorenz.bin
