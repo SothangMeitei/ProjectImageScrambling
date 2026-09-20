@@ -1,0 +1,2 @@
+@call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+nvcc -rdc=true -std=c++17 -O3 -Xcompiler /Zc:preprocessor -DCCCL_IGNORE_MSVC_TRADITIONAL_PREPROCESSOR_WARNING -I. src/main.cu src/encryptionEngine/encryptionEngine.cu src/encryptionEngine/decryptionEngine.cu src/chaoticStreamProcessing/chenStreamProcessor.cpp src/chaoticStreamProcessing/lorenzStreamProcessor.cpp src/kernelCode/kernelsEncrypt.cu src/kernelCode/kernelsDecrypt.cu -o DNA_CipherEngine.exe

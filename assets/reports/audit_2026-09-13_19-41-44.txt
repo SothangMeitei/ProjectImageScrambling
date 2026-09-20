@@ -1,0 +1,208 @@
+============================================================
+  DNA CIPHER SECURITY AUDIT REPORT
+  Generated : 2026-09-13 19:41:44
+  Frames    : 10
+  Target    : 1920x1080
+============================================================
+
+============================================================
+  KEY SENSITIVITY TEST  (Avalanche Effect on Keys)
+  Key Tweak: Chen x0 += 0.000001
+  Expected : NPCR > 99.6% | UACI ~ 33.4%
+============================================================
+  File                       NPCR       UACI
+  --------------------------------------------
+  frame_0.png            99.6126%   33.4745%
+  frame_1.png            99.6126%   33.4639%
+  frame_2.png            99.6102%   33.4668%
+  frame_3.png            99.6118%   33.4765%
+  frame_4.png            99.6105%   33.4772%
+  frame_5.png            99.6105%   33.4857%
+  frame_6.png            99.6105%   33.4611%
+  frame_7.png            99.6114%   33.4606%
+  frame_8.png            99.6105%   33.4617%
+  frame_9.png            99.6138%   33.4798%
+  --------------------------------------------
+  AVERAGE                99.6115%   33.4708%
+
+============================================================
+  PER-FRAME STRUCTURAL AUDIT
+============================================================
+
+  [ frame_0.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98506
+  Correlation (H) Plain|Cipher:  0.98378 | -0.01656
+  Correlation (V) Plain|Cipher:  0.96493 | -0.01380
+  Correlation (D) Plain|Cipher:  0.95765 |  0.01419
+  Differential NPCR (50-bit)  : 79.3016%
+  Differential UACI (50-bit)  : 19.6859%
+  Differential NPCR (1-bit)   : 37.8020%
+  Differential UACI (1-bit)   : 0.8895%
+
+  [ frame_1.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98491
+  Correlation (H) Plain|Cipher:  0.92744 |  0.00928
+  Correlation (V) Plain|Cipher:  0.89903 | -0.01454
+  Correlation (D) Plain|Cipher:  0.86615 | -0.02448
+  Differential NPCR (50-bit)  : 88.9588%
+  Differential UACI (50-bit)  : 26.7951%
+  Differential NPCR (1-bit)   : 1.6134%
+  Differential UACI (1-bit)   : 0.0378%
+
+  [ frame_2.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98498
+  Correlation (H) Plain|Cipher:  0.69325 | -0.01026
+  Correlation (V) Plain|Cipher:  0.65088 |  0.00619
+  Correlation (D) Plain|Cipher:  0.49753 | -0.00320
+  Differential NPCR (50-bit)  : 95.6452%
+  Differential UACI (50-bit)  : 24.9574%
+  Differential NPCR (1-bit)   : 3.1647%
+  Differential UACI (1-bit)   : 0.0186%
+
+  [ frame_3.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98492
+  Correlation (H) Plain|Cipher:  0.98569 | -0.00186
+  Correlation (V) Plain|Cipher:  0.98682 |  0.00462
+  Correlation (D) Plain|Cipher:  0.97574 | -0.02721
+  Differential NPCR (50-bit)  : 86.7507%
+  Differential UACI (50-bit)  : 21.9684%
+  Differential NPCR (1-bit)   : 7.5650%
+  Differential UACI (1-bit)   : 0.1781%
+
+  [ frame_4.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98492
+  Correlation (H) Plain|Cipher:  0.00000 | -0.00366
+  Correlation (V) Plain|Cipher:  0.00000 |  0.01591
+  Correlation (D) Plain|Cipher:  0.00000 |  0.00214
+  Differential NPCR (50-bit)  : 93.2798%
+  Differential UACI (50-bit)  : 21.7214%
+  Differential NPCR (1-bit)   : 0.0132%
+  Differential UACI (1-bit)   : 0.0001%
+
+  [ frame_5.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98493
+  Correlation (H) Plain|Cipher:  0.00000 |  0.00357
+  Correlation (V) Plain|Cipher:  0.00000 |  0.01225
+  Correlation (D) Plain|Cipher:  0.00000 |  0.00657
+  Differential NPCR (50-bit)  : 85.4715%
+  Differential UACI (50-bit)  : 21.0053%
+  Differential NPCR (1-bit)   : 40.2497%
+  Differential UACI (1-bit)   : 3.7878%
+
+  [ frame_6.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98498
+  Correlation (H) Plain|Cipher:  0.97140 | -0.00582
+  Correlation (V) Plain|Cipher:  0.97807 | -0.00860
+  Correlation (D) Plain|Cipher:  0.95447 | -0.00602
+  Differential NPCR (50-bit)  : 88.1741%
+  Differential UACI (50-bit)  : 23.0746%
+  Differential NPCR (1-bit)   : 6.3176%
+  Differential UACI (1-bit)   : 0.5951%
+
+  [ frame_7.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98504
+  Correlation (H) Plain|Cipher:  0.99555 | -0.03979
+  Correlation (V) Plain|Cipher:  0.99456 |  0.01489
+  Correlation (D) Plain|Cipher:  0.99262 | -0.02614
+  Differential NPCR (50-bit)  : 92.7256%
+  Differential UACI (50-bit)  : 27.4012%
+  Differential NPCR (1-bit)   : 0.3413%
+  Differential UACI (1-bit)   : 0.1281%
+
+  [ frame_8.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98501
+  Correlation (H) Plain|Cipher:  0.99986 | -0.01564
+  Correlation (V) Plain|Cipher:  0.99975 | -0.00600
+  Correlation (D) Plain|Cipher:  0.99980 |  0.00786
+  Differential NPCR (50-bit)  : 95.2711%
+  Differential UACI (50-bit)  : 27.1170%
+  Differential NPCR (1-bit)   : 1.1941%
+  Differential UACI (1-bit)   : 0.0281%
+
+  [ frame_9.png ]
+  Global Entropy              : 7.99997 / 8.0
+  Local Entropy               : 7.98488
+  Correlation (H) Plain|Cipher:  0.99910 |  0.01414
+  Correlation (V) Plain|Cipher:  0.99842 | -0.02659
+  Correlation (D) Plain|Cipher:  0.99812 | -0.00926
+  Differential NPCR (50-bit)  : 80.4431%
+  Differential UACI (50-bit)  : 21.1636%
+  Differential NPCR (1-bit)   : 29.9805%
+  Differential UACI (1-bit)   : 0.1763%
+
+============================================================
+  ROBUSTNESS & FAULT TOLERANCE
+============================================================
+
+  [ frame_0.png ]
+  Crop Attack  PSNR           : 48.69 dB
+  Crop Attack  SSIM           : 0.9913
+  Noise Attack PSNR           : 43.28 dB
+  Noise Attack SSIM           : 0.9711
+
+  [ frame_1.png ]
+  Crop Attack  PSNR           : 49.69 dB
+  Crop Attack  SSIM           : 0.9974
+  Noise Attack PSNR           : 43.40 dB
+  Noise Attack SSIM           : 0.9891
+
+  [ frame_2.png ]
+  Crop Attack  PSNR           : 46.06 dB
+  Crop Attack  SSIM           : 0.9766
+  Noise Attack PSNR           : 42.48 dB
+  Noise Attack SSIM           : 0.9493
+
+  [ frame_3.png ]
+  Crop Attack  PSNR           : 48.68 dB
+  Crop Attack  SSIM           : 0.9897
+  Noise Attack PSNR           : 43.32 dB
+  Noise Attack SSIM           : 0.9658
+
+  [ frame_4.png ]
+  Crop Attack  PSNR           : 45.21 dB
+  Crop Attack  SSIM           : 0.9430
+  Noise Attack PSNR           : 40.23 dB
+  Noise Attack SSIM           : 0.7644
+
+  [ frame_5.png ]
+  Crop Attack  PSNR           : 46.74 dB
+  Crop Attack  SSIM           : 0.9786
+  Noise Attack PSNR           : 40.22 dB
+  Noise Attack SSIM           : 0.9246
+
+  [ frame_6.png ]
+  Crop Attack  PSNR           : 49.37 dB
+  Crop Attack  SSIM           : 0.9936
+  Noise Attack PSNR           : 43.44 dB
+  Noise Attack SSIM           : 0.9761
+
+  [ frame_7.png ]
+  Crop Attack  PSNR           : 47.65 dB
+  Crop Attack  SSIM           : 0.9823
+  Noise Attack PSNR           : 43.00 dB
+  Noise Attack SSIM           : 0.9522
+
+  [ frame_8.png ]
+  Crop Attack  PSNR           : 49.28 dB
+  Crop Attack  SSIM           : 0.9875
+  Noise Attack PSNR           : 43.54 dB
+  Noise Attack SSIM           : 0.9572
+
+  [ frame_9.png ]
+  Crop Attack  PSNR           : 48.53 dB
+  Crop Attack  SSIM           : 0.9854
+  Noise Attack PSNR           : 43.83 dB
+  Noise Attack SSIM           : 0.9592
+
+============================================================
+  END OF REPORT
+============================================================

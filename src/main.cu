@@ -3,158 +3,337 @@
 #include <vector>
 #include <string>
 #include <thread>
+#include <algorithm>
+#include <fstream>
+#include <unordered_map>
 #include <chrono>
 
-// Instruct STB vendor headers to compile their native C bytecode implementation inline
 #define STB_IMAGE_IMPLEMENTATION
 #include "../vendor/stb/stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../vendor/stb/stb_image_write.h"
 
-// Include your overarching encryption engine and chaotic parameter contracts
 #include "encryptionEngine/encryptionEngine.h"
+#include "encryptionEngine/decryptionEngine.h"
 #include "chaoticSystems/chenChaoticSystem.h"
 #include "chaoticSystems/lorenzHyperChaoticSystem.h"
+#include "encryptionEngine/imageData.h"
 
 namespace fs = std::filesystem;
 
-int main() {
-    std::cout << "============================================================\n";
-    std::cout << "    HIGH-THROUGHPUT DNA CHAOTIC CRYPTO ENGINE (RTX 2050)    \n";
-    std::cout << "============================================================\n\n";
 
-    // STAGE 1: I/O CONTAINER SANITIZATION & FILE GATHERING
-    std::string asset_dir  = "assets";
-    std::string output_dir = "outputs";
+struct SystemConfig {
+    bool isValid;
+    std::string mode;
+    std::string inputDir;
+    std::string outputDir;
+};
 
-    if (!fs::exists(asset_dir)) {
-        std::cerr << "[SYSTEM ERROR]: Asset container directory '" << asset_dir << "' not found.\n";
-        return 1;
-    }
-    if (!fs::exists(output_dir)) {
-        fs::create_directory(output_dir);
-        std::cout << "[HOST I/O]: Created contiguous output destination '" << output_dir << "/'\n";
+namespace ConfigManager {
+    std::string _trim(const std::string& str) {
+        size_t first = str.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) return "";
+        size_t last = str.find_last_not_of(" \t\r\n");
+        return str.substr(first, (last - first + 1));
     }
 
-    // Harvest all image file paths (PNG/JPG) contiguously from the assets directory
-    std::vector<std::string> image_filepaths;
-    for (const auto& entry : fs::directory_iterator(asset_dir)) {
-        if (entry.is_regular_file()) {
-            std::string ext = entry.path().extension().string();
-            // Convert extension to lowercase for robust matching
-            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-            if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") {
-                image_filepaths.push_back(entry.path().string());
+    std::unordered_map<std::string, std::string> _loadOrGenerateTextConfig(const std::string& filename) {
+        std::unordered_map<std::string, std::string> config;
+        std::ifstream file(filename);
+        
+        if (!file.is_open()) {
+            std::ofstream out(filename);
+            out << "# DNA Cipher Engine - Directory Configuration\n\n";
+            out << "[ENCRYPT]\nencrypt_src = assets\nencrypt_out = outputs\n\n";
+            out << "[DECRYPT]\ndecrypt_src = outputs\ndecrypt_out = decrypted_outputs\n\n";
+            out << "[BENCHMARK]\nbenchmark_src = assets\nbenchmark_out = benchmark_outputs\n";
+            out.close();
+            file.open(filename);
+            std::cout << "[SYSTEM]: Generated default '" << filename << "' configuration file.\n";
+        }
+
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line[0] == '#' || line[0] == '[') continue;
+            size_t delimPos = line.find('=');
+            if (delimPos != std::string::npos) {
+                config[_trim(line.substr(0, delimPos))] = _trim(line.substr(delimPos + 1));
             }
         }
+        return config;
     }
 
-    if (image_filepaths.empty()) {
-        std::cerr << "[SYSTEM ERROR]: No valid image assets found inside '" << asset_dir << "/'.\n";
-        return 1;
-    }
-
-    std::cout << "[HOST I/O]: Successfully harvested " << image_filepaths.size() << " raw video frames contiguously.\n\n";
-
-    // ------------------------------------------------------------------------
-    // STAGE 2: THE IGNITION PEEK & MASTER KEY GENERATION
-    // ------------------------------------------------------------------------
-    std::cout << "[STAGE 2]: Decoding initial frame metadata to bound VRAM Arena...\n";
-    
-    int width, height, original_channels;
-    int desired_channels = 3; // Enforcing contiguous 3-channel RGB byte packing
-    
-    // Peek at the first frame to capture the stream's absolute spatial dimensions
-    unsigned char* h_firstFrameBytes = stbi_load(
-        image_filepaths[0].c_str(), &width, &height, &original_channels, desired_channels
-    );
-
-    if (!h_firstFrameBytes) {
-        std::cerr << "[SYSTEM ERROR]: Failed to decode initial image asset: " << image_filepaths[0] << "\n";
-        return 1;
-    }
-
-    int total_stream_bytes = width * height * desired_channels;
-
-    // Package the captured metadata into your explicit constructor contract
-    imageData streamFormat;
-    streamFormat.imagePixelValues      = h_firstFrameBytes;
-    streamFormat.sizeOfImageFileInByte = total_stream_bytes;
-    streamFormat.width                 = width;
-    streamFormat.height                = height;
-    streamFormat.channels              = desired_channels;
-
-    // --- GENERATE MASTER SECRET KEYS (The unguessable initial coordinates) ---
-    std::cout << "[STAGE 2]: Instantiating Master Secret Keys (Kerckhoffs-Compliant)...\n";
-    
-    // Chen: (a=35, b=3, c=28), 1000 discard cycles, starting coordinate X, Y, Z
-    chenInitialArguments chenSecretKeys(
-        35.0f, 3.0f, 28.0f, 1000, 
-        0.1234567f, 0.5432198f, 0.9876543f
-    );
-
-    // Lorenz: (a=10, b=8/3, c=46, d=2, e=12), 1500 discard cycles, starting coord X, Y, Z, W
-    lorenzInitialArguments lorenzSecretKeys(
-        10.0f, (8.0f / 3.0f), 46.0f, 2.0f, 12.0f, 1500, 
-        0.7194113f, 0.8156727f, 0.2946103f, 0.9019771f
-    );
-
-    // Boot the hardware: Ignites RK4 CPU solvers, executes Radix sort, allocates static VRAM arena!
-    std::cout << "[SYSTEM BOOT]: Igniting master encryptionEngine hardware...\n";
-    encryptionEngine masterEngine(streamFormat, chenSecretKeys, lorenzSecretKeys);
-
-    // We must push the first frame bytes into the queue buffer since we loaded them!
-    masterEngine.pushImageIntoQueueBuffer(h_firstFrameBytes);
-
-    // ------------------------------------------------------------------------
-    // STAGE 3: ASYNCHRONOUS MULTI-THREADED PIPELINE DISPATCH
-    // ------------------------------------------------------------------------
-    std::cout << "\n[STAGE 3]: Spawning dedicated background GPU Compute Worker Thread...\n";
-    // Spawns a background thread running the consumer polling loop: masterEngine.run()
-    std::thread computeWorker(&encryptionEngine::run, &masterEngine);
-
-    // PRODUCER LOOP: Primary CPU thread streams the remaining files contiguously into RAM
-    std::cout << "[PRODUCER]: Streaming remaining directory frames into engine queue...\n";
-    for (size_t i = 1; i < image_filepaths.size(); ++i) {
-        int w, h, c;
-        unsigned char* h_frameBytes = stbi_load(
-            image_filepaths[i].c_str(), &w, &h, &c, desired_channels
-        );
-
-        if (h_frameBytes) {
-            // Push raw host pointer into thread-safe queue buffer contiguously
-            masterEngine.pushImageIntoQueueBuffer(h_frameBytes);
-            std::cout << "  -> Queued Frame [" << i << "/" << (image_filepaths.size()-1) << "] : " << image_filepaths[i] << "\n";
-        } else {
-            std::cerr << "[SYSTEM WARNING]: Dropped corrupted frame asset: " << image_filepaths[i] << "\n";
+    SystemConfig initialize(int argc, char* argv[]) {
+        SystemConfig config { false, "", "", "" };
+        if (argc != 2) {
+            std::cerr << "Usage: ./engine <encrypt | decrypt | benchmark>\n";
+            return config;
         }
+
+        config.mode = argv[1];
+        auto textConfig = _loadOrGenerateTextConfig("engine_config.txt");
+
+        if (config.mode == "encrypt") {
+            config.inputDir  = textConfig["encrypt_src"];
+            config.outputDir = textConfig["encrypt_out"];
+        } else if (config.mode == "decrypt") {
+            config.inputDir  = textConfig["decrypt_src"];
+            config.outputDir = textConfig["decrypt_out"];
+        } else if (config.mode == "benchmark") {
+            config.inputDir  = textConfig["benchmark_src"];
+            config.outputDir = textConfig["benchmark_out"];
+        } else {
+            std::cerr << "[ERROR]: Unknown mode: " << config.mode << "\n";
+            return config;
+        }
+
+        if (!fs::exists(config.inputDir)) {
+            std::cerr << "[FATAL ERROR]: Input directory '" << config.inputDir << "' does not exist!\n";
+            return config;
+        }
+
+        config.isValid = true;
+        return config;
+    }
+}
+
+namespace KeyVault {
+    chenInitialArguments<double> getChenMasterKeys() {
+        std::cerr << "    -> [chen VAULT]: Entered function." << std::endl;
+
+        std::ifstream file("engine_keys.txt");
+        std::string token;
+        
+        // MATHEMATICALLY STABLE DEFAULTS
+        double k1 = 35.0, k2 = 3.0, k3 = 28.0;
+        double x = 0.1234567, y = 0.5432198, z = 0.9876543; 
+        int t = 1000;
+        std::cerr << "    -> [chen VAULT]: Default vars set. Checking file..." << std::endl;
+
+        if (file.is_open()) {
+            // Using '>>' natively ignores all \r and \n formatting bugs!
+            while (file >> token) {
+                if (token == "[CHEN]") {
+                    file >> k1 >> k2 >> k3 >> t >> x >> y >> z;
+                    break;
+                }
+            }
+        } else {
+            std::cerr << "  [WARNING]: engine_keys.txt not found. Booting with default Chen seeds.\n";
+        }
+        std::cerr << "    -> [chen VAULT]: Returning struct (Danger Zone)..." << std::endl;
+
+        return chenInitialArguments<double>(k1, k2, k3, t, x, y, z);
     }
 
-    // ------------------------------------------------------------------------
-    // STAGE 4: PIPELINE DRAIN & GRACEFUL HARDWARE JOIN
-    // ------------------------------------------------------------------------
-    std::cout << "\n[PRODUCER]: Directory ingestion complete. Draining VRAM compute arena...\n";
-    
-    // Poll the public queue size dynamically until the consumer finishes the very last byte
-    while (masterEngine.getRemainingQueueSize() > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    lorenzInitialArguments<double> getLorenzMasterKeys() {
+        std::cerr << "    -> [LORENZ VAULT]: Entered function." << std::endl;
+        std::ifstream file("engine_keys.txt");
+        std::string token;
+        
+        double a = 10.0, b = (8.0 / 3.0), c = 46.0, r = 2.0;
+        double x = 12.0, y = 0.7194113, z = 0.8156727, w = 0.2946892, step = 0.4389124;
+        int t = 1500;
+
+        std::cerr << "    -> [LORENZ VAULT]: Default vars set. Checking file..." << std::endl;
+        if (file.is_open()) {
+            while (file >> token) {
+                if (token == "[LORENZ]") {
+                    file >> a >> b >> c >> r >> x >> t >> y >> z >> w >> step;
+                    break;
+                }
+            }
+        } else {
+            std::cerr << "    -> [WARNING]: engine_keys.txt not found. Using Lorenz defaults." << std::endl;
+        }
+        
+        std::cerr << "    -> [LORENZ VAULT]: Returning struct (Danger Zone)..." << std::endl;
+        return lorenzInitialArguments<double>(a, b, c, r, x, t, y, z, w, step);
+    }
+}
+
+namespace ComputePipeline {
+
+    //just return the list of file paths of the target files, that are inside this directory
+    std::vector<std::string> _fetchImageTargets(const std::string& directory) {
+        std::vector<std::string> filepaths; //the list of file paths, of the input images
+
+        for (const auto& entry : fs::directory_iterator(directory)) {
+            std::string path = entry.path().string();
+            //to make sure that the file either of the format .png or .jpg
+            if (path.find(".png") != std::string::npos || path.find(".jpg") != std::string::npos) {
+                filepaths.push_back(path);
+            }
+        }
+        //sort the file paths so that there is some order in which files to first process and output
+        std::sort(filepaths.begin(), filepaths.end());
+        return filepaths;
     }
 
-    // Give the GPU a tiny 100ms safety window to complete the final disk stbi_write_png flush
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    void executeEncryption(const SystemConfig& config, bool runDifferentialAsset = false) {
+        std::vector<std::string> targets = _fetchImageTargets(config.inputDir);
+        if (targets.empty()) return;
 
-    std::cout << "[SHUTDOWN]: Transmitting termination barrier to compute engine...\n";
-    masterEngine.stop();
-    // Join the GPU thread back to the main CPU thread contiguously
-    if (computeWorker.joinable()) {
-        computeWorker.join();
-        std::cout << "[SHUTDOWN]: GPU Compute Worker Thread successfully synchronized and joined.\n";
+        if (!fs::exists(config.outputDir)) fs::create_directories(config.outputDir);
+
+        // std::endl forces Python to display the text immediately!
+        std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Encryption Engine..." << std::endl;
+        
+        int w = 0, h = 0, c = 0;
+        //this will use the stb image library to get the dimensions of the image file at the 
+        //file path target[0]
+        unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
+        if(!probe) {
+            std::cout << "[FATAL]: Failed to load initial probe image!" << std::endl;
+            return;
+        }
+        stbi_image_free(probe);
+        
+        imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
+
+        encryptionEngine* masterEncrypt = nullptr; //make an instance of the encryption engine
+
+        try {
+            chenInitialArguments cKeys = KeyVault::getChenMasterKeys();
+            
+            lorenzInitialArguments lKeys = KeyVault::getLorenzMasterKeys();
+            
+            masterEncrypt = new encryptionEngine(streamFormat, cKeys, lKeys); //initialize it with the format and the secret key
+                        
+        } catch (const std::exception& e) {
+            std::cout<<"Failed to initialze the engine, what: "<<e.what()<<std::endl;
+            return;
+        }
+
+        std::cout << "  -> Engine Initialized successfully!" << std::endl;
+
+        for (const auto& file : targets) {
+            std::string original_filename = fs::path(file).filename().string();
+            std::cout << "\n  [HOST]: Encrypting " << original_filename << "..." << std::endl;
+
+            auto time_total_start = std::chrono::high_resolution_clock::now();
+
+            auto time_io_start = std::chrono::high_resolution_clock::now();
+            unsigned char* h_frameBytes = stbi_load(file.c_str(), &w, &h, &c, 3);
+            if (!h_frameBytes) {
+                std::cout << "  [ERROR]: Failed to load " << original_filename << std::endl;
+                continue;
+            }
+            auto time_io_end = std::chrono::high_resolution_clock::now();
+
+            float disk_io_ms = std::chrono::duration<float, std::milli>(time_io_end - time_io_start).count();
+
+            //outputs the main cipher + the other part which is due to the bit slipting
+            auto ciphers = masterEncrypt->encrypt(h_frameBytes, streamFormat.sizeOfImageFileInByte);
+            masterEncrypt->exportKeystreams(config.outputDir, streamFormat.sizeOfImageFileInByte);
+
+
+            time_io_start = std::chrono::high_resolution_clock::now();
+            
+            std::string main_out = config.outputDir + "/" + original_filename;
+            stbi_write_png(main_out.c_str(), w, h, 3, ciphers.first, 0);
+
+            std::string aux_out = config.outputDir + "/aux_" + original_filename;
+            stbi_write_png(aux_out.c_str(), w, h, 3, ciphers.second, 0);
+            
+            time_io_end = std::chrono::high_resolution_clock::now();
+            
+            disk_io_ms += std::chrono::duration<float, std::milli>(time_io_end - time_io_start).count();
+
+            auto time_total_end = std::chrono::high_resolution_clock::now();
+            float total_end_to_end_ms = std::chrono::duration<float, std::milli>(time_total_end - time_total_start).count();
+
+            std::cout << "      [HOST METRICS]: Disk I/O (stb_image)  : " << disk_io_ms << " ms" << std::endl;
+            std::cout << "      [SYS METRICS] : Total End-to-End Time : " << total_end_to_end_ms << " ms" << std::endl;
+            
+            float size_in_mb = (w * h * 3) / (1024.0f * 1024.0f);
+            float throughput_mb_s = size_in_mb / (total_end_to_end_ms / 1000.0f);
+            std::cout << "      [PERFORMANCE] : Throughput            : " << throughput_mb_s << " MB/s" << std::endl;
+
+            delete[] ciphers.first;
+            delete[] ciphers.second;
+            stbi_image_free(h_frameBytes);
+        }
+        
+        std::cout << " [SUCCESS]: Encryption Complete! Saved -> '" << config.outputDir << "/'" << std::endl;
+        delete masterEncrypt;
     }
 
-    std::cout << "\n============================================================\n";
-    std::cout << " [SUCCESS]: Batch Cryptographic Processing Complete!        \n";
-    std::cout << " Verify your encrypted video frames inside '" << output_dir << "/'.\n";
-    std::cout << "============================================================\n";
+    void executeDecryption(const SystemConfig& config) {
+        std::vector<std::string> targets = _fetchImageTargets(config.inputDir);
+        if (targets.empty()) return;
 
-    return 0;
+        if (!fs::exists(config.outputDir)) fs::create_directories(config.outputDir);
+
+        std::cout << "[SYSTEM BOOT]: Igniting Pure Compute Decryption Engine...\n";
+        
+        int w = 0, h = 0, c = 0;
+        unsigned char* probe = stbi_load(targets[0].c_str(), &w, &h, &c, 3);
+        if(!probe) return;
+        stbi_image_free(probe);
+        
+        imageData streamFormat { nullptr, w * h * 3, h, w, 3 };
+
+        decryptionEngine* masterDecrypt{nullptr};
+        try {
+            chenInitialArguments cKeys = KeyVault::getChenMasterKeys();
+            
+            lorenzInitialArguments lKeys = KeyVault::getLorenzMasterKeys();
+            
+            masterDecrypt = new decryptionEngine(streamFormat, cKeys, lKeys); //create decryption engine instance
+                        
+        } catch (const std::exception& e) {
+            std::cout<<"Error in making decryption engine instance, what: "<<e.what()<<std::endl;
+            return;
+        }
+        
+        for (const auto& file : targets) {
+            std::string original_filename = fs::path(file).filename().string();
+            
+            // Skip the auxiliary files during the main loop, we load them manually!
+            if (original_filename.find("aux_") == 0) continue;
+
+            //after skipping the auxiliary path just make the auxiliray path form the main path
+            std::string aux_filepath = config.inputDir + "/aux_" + original_filename;
+
+            unsigned char* main_cipher = stbi_load(file.c_str(), &w, &h, &c, 3);
+            unsigned char* aux_cipher = stbi_load(aux_filepath.c_str(), &w, &h, &c, 3);
+
+            if (!main_cipher || !aux_cipher) {
+                std::cerr << "  [ERROR]: Missing matching aux_ file for " << original_filename << "\n";
+                if(main_cipher) stbi_image_free(main_cipher);
+                continue;
+            }
+
+            std::cout << "  [HOST]: Decrypting " << original_filename << "...\n";
+
+            // Trigger Engine
+            unsigned char* plainText = masterDecrypt->decrypt(main_cipher, aux_cipher, streamFormat.sizeOfImageFileInByte);
+
+            std::string out_path = config.outputDir + "/" + original_filename;
+            stbi_write_png(out_path.c_str(), w, h, 3, plainText, 0);
+
+            delete[] plainText;
+            stbi_image_free(main_cipher);
+            stbi_image_free(aux_cipher);
+        }
+        
+        std::cout << " [SUCCESS]: Batch Decryption Complete! Output -> '" << config.outputDir << "/'\n";
+    }
+}
+
+
+int main(int argc, char* argv[]) {
+
+    SystemConfig config = ConfigManager::initialize(argc, argv);
+    if (!config.isValid) return EXIT_FAILURE;
+
+    if (config.mode == "encrypt") {
+        ComputePipeline::executeEncryption(config, false);
+    }  
+    else if (config.mode == "decrypt") {
+        ComputePipeline::executeDecryption(config);
+    }
+
+    return EXIT_SUCCESS;
 }
