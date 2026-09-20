@@ -40,6 +40,20 @@ TARGET_W, TARGET_H = 1920, 1080
 # ==============================================================================
 # ENGINE CONTROLLER & BINARY DISCOVERY
 # ==============================================================================
+
+def get_actual_filename(dir_path: str, base_name: str) -> str:
+    """Helper to support both older engines (which prefix files with encrypted_/decrypted_) and the modern 2D engine."""
+    candidates = [
+        os.path.join(dir_path, f"decrypted_encrypted_{base_name}"),
+        os.path.join(dir_path, f"decrypted_{base_name}"),
+        os.path.join(dir_path, f"encrypted_{base_name}"),
+        os.path.join(dir_path, base_name)
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return os.path.join(dir_path, base_name)
+
 class CipherEngineController:
     """Manages dynamic binary discovery, configuration, and execution of the C++ CUDA engine."""
 
@@ -188,6 +202,8 @@ class AuditPipeline:
     def run_key_avalanche_stage(self, plain_files: List[str], report) -> Tuple[List[float], List[float]]:
         """Evaluates avalanche sensitivity with respect to infinitesimal key variation."""
         print("[PIPELINE]: Running Key Sensitivity Test...")
+        shutil.rmtree(DIRS["cipher"], ignore_errors=True)
+        os.makedirs(DIRS["cipher"], exist_ok=True)
         self.engine.write_config("encrypt", DIRS["plain"], DIRS["cipher"])
         self.engine.generate_keys("engine_keys.txt", tweak_chen=False)
         self.engine.run("encrypt")
@@ -215,8 +231,8 @@ class AuditPipeline:
             npcr_vals, uaci_vals = [], []
             for p in plain_files:
                 fname = os.path.basename(p)
-                b_img = cv2.imread(os.path.join(backup_dir, fname))
-                m_img = cv2.imread(os.path.join(DIRS["cipher"], fname))
+                b_img = cv2.imread(get_actual_filename(backup_dir, fname))
+                m_img = cv2.imread(get_actual_filename(DIRS["cipher"], fname))
                 if b_img is not None and m_img is not None:
                     npcr = DifferentialAnalyzer.calculate_npcr(b_img, m_img)
                     uaci = DifferentialAnalyzer.calculate_uaci(b_img, m_img)
@@ -284,9 +300,9 @@ class AuditPipeline:
 
         for plain_path in plain_files:
             fname = os.path.basename(plain_path)
-            c_path = os.path.join(DIRS["cipher"], fname)
-            diff_50_path = os.path.join(DIRS["diff_cipher"], fname)
-            diff_1_path  = os.path.join(DIRS["diff_cipher_1bit"], fname)
+            c_path = get_actual_filename(DIRS["cipher"], fname)
+            diff_50_path = get_actual_filename(DIRS["diff_cipher"], fname)
+            diff_1_path  = get_actual_filename(DIRS["diff_cipher_1bit"], fname)
 
             if not os.path.exists(c_path):
                 continue
@@ -337,7 +353,7 @@ class AuditPipeline:
             RobustnessAnalyzer.stage_advanced_cropping(suite.cipher, random_crop_config, crop_out)
             RobustnessAnalyzer.stage_noise_attack(suite.cipher, noise_out, density=0.05)
 
-            aux_src = os.path.join(DIRS["cipher"], f"aux_{fname}")
+            aux_src = get_actual_filename(DIRS["cipher"], f"aux_{fname}")
             if os.path.exists(aux_src):
                 _safe_copy(aux_src, os.path.join(DIRS["attacks_staged"], f"aux_crop_{fname}"))
                 _safe_copy(aux_src, os.path.join(DIRS["attacks_staged"], f"aux_noise_{fname}"))
@@ -354,10 +370,10 @@ class AuditPipeline:
 
         for plain_path in plain_files:
             fname = os.path.basename(plain_path)
-            rec_crop  = os.path.join(DIRS["attacks_recovered"], f"crop_{fname}")
-            rec_noise = os.path.join(DIRS["attacks_recovered"], f"noise_{fname}")
+            rec_crop  = get_actual_filename(DIRS["attacks_recovered"], f"crop_{fname}")
+            rec_noise = get_actual_filename(DIRS["attacks_recovered"], f"noise_{fname}")
             if os.path.exists(rec_crop) and os.path.exists(rec_noise):
-                c_path = os.path.join(DIRS["cipher"], fname)
+                c_path = get_actual_filename(DIRS["cipher"], fname)
                 suite = CipherAuditSuite(plain_path, c_path)
                 psnr_c, ssim_c = RobustnessAnalyzer.evaluate_quality(suite.plain, cv2.imread(rec_crop))
                 psnr_n, ssim_n = RobustnessAnalyzer.evaluate_quality(suite.plain, cv2.imread(rec_noise))
